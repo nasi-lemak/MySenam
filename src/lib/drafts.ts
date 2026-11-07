@@ -10,9 +10,11 @@ import { getDb } from "./db";
  * accounts — by the daily retention run (lib/privacy.ts).
  *
  * Except anything that is somebody else's: a pass, a membership or credit
- * sold to a customer, an online payment, an invoice or an e-invoice. A draft holding one of
- * those is left alone for the platform owner to look at, rather than
- * deleting a record of money.
+ * sold to a customer, an online payment, an invoice or an e-invoice, and money
+ * taken at the counter in a "test" booking (a receipt or credit note, a refund
+ * owed or paid back, a counter sale, a booking marked paid, a hire deposit).
+ * A draft holding one of those is left alone for the platform owner to look
+ * at, rather than deleting a record of money.
  */
 
 export const STALE_DRAFT_DAYS = 90;
@@ -39,6 +41,20 @@ export async function staleDrafts(): Promise<{ businessId: number; venueIds: num
             SELECT 1 FROM venue_invoices i
              WHERE i.business_id = b.id OR i.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
           AND NOT EXISTS (SELECT 1 FROM e_invoices e WHERE e.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
+          -- Real money taken at the counter in a "test" booking is never out of the records (ADR 0064, as the marketplace
+          -- document's test-bookings rule says): a receipt or credit note is never deleted, and what is owed back or was
+          -- paid back stays where staff and the owner look for it. A draft holding any of it is left, not purged.
+          AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
+          AND NOT EXISTS (SELECT 1 FROM counter_payouts cp WHERE cp.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
+          AND NOT EXISTS (SELECT 1 FROM counter_refunds_owed co WHERE co.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
+          AND NOT EXISTS (SELECT 1 FROM counter_sales cs WHERE cs.venue_id IN (SELECT id FROM venues WHERE business_id = b.id))
+          AND NOT EXISTS (
+            SELECT 1 FROM bookings bk JOIN courts ct ON ct.id = bk.court_id
+             WHERE ct.venue_id IN (SELECT id FROM venues WHERE business_id = b.id)
+               AND (bk.payment_status = 'paid' OR bk.shares_paid > 0 OR bk.deposit_paid > 0))
+          AND NOT EXISTS (
+            SELECT 1 FROM hire_records h JOIN bookings hb ON hb.id = h.booking_id JOIN courts hc ON hc.id = hb.court_id
+             WHERE hc.venue_id IN (SELECT id FROM venues WHERE business_id = b.id) AND h.deposit > 0)
         GROUP BY b.id ORDER BY b.id`
     )
     .all(`-${STALE_DRAFT_DAYS} days`)) as { business_id: number; venue_ids: number[] }[];

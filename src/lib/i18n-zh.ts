@@ -5029,6 +5029,7 @@ export const ZH: Record<Phrase, string> = {
   "msg.refundOnline": "新时段比您已付的费用低 {cur}{amount}；该金额将按您的付款方式退还。",
   "msg.refundCounter": "新时段比您已付的费用低 {cur}{amount}；场馆应退还该金额，请到场馆领取。",
   "msg.refundCredit": "新时段比您已付的费用低 {cur}{amount}；该金额已退回您的储值。",
+  "err.SEC_CHECKIN_BLOCKED": "此号码已被本场馆拒绝，因此不能签到。经理可在说明原因后解除拒绝。",
 };
 
 /** Refusals still keyed on their exact English (see CUSTOMER_ERRORS_MS). */

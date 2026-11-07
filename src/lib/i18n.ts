@@ -5197,6 +5197,7 @@ const EN = {
   "msg.refundOnline": "The new time costs {cur}{amount} less than you paid; that is being given back the way you paid.",
   "msg.refundCounter": "The new time costs {cur}{amount} less than you paid; the venue owes you that back, so ask for it at the venue.",
   "msg.refundCredit": "The new time costs {cur}{amount} less than you paid; that went back to your stored credit.",
+  "err.SEC_CHECKIN_BLOCKED": "This number is refused at this venue, so it is not checked in. A manager can lift the refusal, with a reason.",
 } as const;
 
 export type Phrase = keyof typeof EN;
@@ -10339,6 +10340,7 @@ const MS: Record<Phrase, string> = {
   "msg.refundOnline": "Masa baharu {cur}{amount} lebih murah daripada yang anda bayar; jumlah itu sedang dipulangkan melalui cara anda membayar.",
   "msg.refundCounter": "Masa baharu {cur}{amount} lebih murah daripada yang anda bayar; pusat berhutang jumlah itu kepada anda, jadi mintalah di pusat.",
   "msg.refundCredit": "Masa baharu {cur}{amount} lebih murah daripada yang anda bayar; jumlah itu telah dipulangkan ke kredit tersimpan anda.",
+  "err.SEC_CHECKIN_BLOCKED": "Nombor ini ditolak di pusat ini, jadi ia tidak didaftar masuk. Pengurus boleh mengangkat penolakan itu, dengan satu sebab.",
 };
 
 /** Exported so a test can hold the two languages against each other. */

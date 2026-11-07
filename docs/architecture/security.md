@@ -236,6 +236,15 @@ does not yet hold for customers is in
   customer gives, a browser error report, a review, a coach's note on their
   days off. A score is read only in the form a result takes.
 
+## API keys and webhook addresses follow the people who made them
+
+A key or webhook address is a **person's** (it stops when that person is removed,
+made front desk, or no longer manages the venue, checked on every request) or the
+**venue's** (it does not), and managers see which, and who made it
+([ADR 0064](decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md),
+[the public API](../integrations/external-api.md#public-api-and-webhooks)). A key of a
+suspended venue or business reads and does not write.
+
 ## Rate limiting
 
 Password endpoints and anything addressable by a short code are rate limited
@@ -252,6 +261,14 @@ per client IP (`src/lib/rate-limit.ts`), returning `429` with `Retry-After`:
 | The MCP server without a key | 60 per minute ([MCP server](../integrations/mcp.md)); with a key, the public API's 120 per minute per key; signed in from an assistant, 120 per minute per connection |
 | Registering an AI assistant's connector (`/api/oauth/register`) | 30 per hour (a provider registers for all its users from few addresses) |
 | Exchanging or revoking an assistant's tokens (`/api/oauth/token`, `/api/oauth/revoke`) | 600 per 10 min (every connection of a provider refreshes from few addresses; the tokens cannot be guessed) |
+
+Second-factor codes are limited apart, in the database and not in memory, so
+parallel requests and several instances count against one number: 5 tries per
+sign-in ticket, 10 in 15 minutes for one account from one address, 50 in an hour
+for one account from anywhere, each counted before the code is looked at and each
+ending by itself ([two-factor sign-in](authentication.md#two-factor-sign-in)).
+On a production marketplace staff two-factor sign-in is compulsory for owners and
+managers and cannot be switched off by a setting.
 
 Counters live in process memory by default, which is right for one instance.
 Behind several, set `MYSENAM_RATE_LIMITS=shared` and they live in Postgres

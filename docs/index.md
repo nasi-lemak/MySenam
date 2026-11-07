@@ -138,6 +138,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0066 A free hour is given once by the database's rule, a failed webhook delivery can be sent again, the backup has a lease of its own, lapsed holds are let go for the venue's API, and an unanswered hire enquiry is on the worklist](architecture/decisions/0066-operations-hardening-grants-deliveries-leases-and-the-worklist.md)
 [0068 A credit note is not cash paid; a booking a pass paid takes back entries and no money; "spent" is money paid; the till lists every payout; a hire deposit's method can be stated once; an invoice shows what was paid](architecture/decisions/0068-money-hardening-credit-notes-are-not-cash-spent-is-money-paid-and-the-till-lists-every-payout.md)
 [0067 A paid booking moved to a cheaper time gives the difference back; a move never silently creates, removes or wastes a discount; a dearer move of an invoiced booking is refused](architecture/decisions/0067-a-paid-booking-moved-cheaper-gives-the-difference-back-and-a-move-never-silently-changes-a-discount.md)
+[0064 Credentials follow their owners, staff two-factor is on by default for managers of a production marketplace, second-factor attempts are counted before they are checked, a refused number is admitted by nobody](architecture/decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md)
 
 ## Integrations
 

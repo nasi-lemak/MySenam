@@ -130,6 +130,13 @@ takes money out of the financial records.**
   that booking as real; the period report says what was paid on tests, apart
   from its figures ([reporting](../features/reporting.md#reporting)). Nothing
   of it is added into the real totals.
+- **A stale draft holding any of it is not purged.** The 90-day clean-up of a
+  draft nobody came back to ([privacy](../architecture/privacy.md#retention))
+  leaves a business holding a receipt or credit note, a refund owed or paid back,
+  a counter sale, a booking marked paid, or a hire deposit: a receipt is never
+  deleted, and the draft stays for the owner to look at
+  ([ADR 0064](../architecture/decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md),
+  `tests/draft-purge.test.ts`).
 - **Staff see it marked** *Test* in the day list.
 - **A manager clears them**, from the go-live banner (*Clear all test
   bookings*), or by ticking *Also clear my test bookings* when sending the

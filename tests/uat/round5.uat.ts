@@ -960,6 +960,9 @@ async function phoneCheckingServer(dir: string): Promise<{ base: string; output:
       MYSENAM_URL: base,
       ADMIN_EMAIL: OWNER.email,
       ADMIN_PASSWORD: OWNER.password,
+      // Synthetic data only: the one way staff two-factor sign-in is left off on a production marketplace (tests/e2e/server.ts, ADR 0064).
+      MYSENAM_STAFF_2FA: "off",
+      MYSENAM_SYNTHETIC_DATA: "on",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

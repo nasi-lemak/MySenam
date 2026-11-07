@@ -21,7 +21,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (adminId === null) return NextResponse.json({ error: "Invalid admin id." }, { status: 400 });
   const done = await removeStaff(admin, adminId);
   if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status });
-  return NextResponse.json({ ok: true });
+  // What happened to the credentials around the account, so the screen can tell the manager what to review (ADR 0064).
+  return NextResponse.json({ ok: true, credentials: done.credentials });
 }
 
 /**

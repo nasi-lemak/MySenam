@@ -3,7 +3,7 @@ import { getSessionAdmin } from "@/lib/admin-auth";
 import { isOwner } from "@/lib/admin-auth";
 import { listVenues, listVenuesByIds } from "@/lib/store";
 import { pruneIfDue } from "@/lib/privacy";
-import { twoFactorStatus } from "@/lib/two-factor";
+import { hasTwoFactor, twoFactorRequired, twoFactorStatus } from "@/lib/two-factor";
 import { staffMay } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +28,11 @@ async function houseKeep(): Promise<void> {
 export async function GET(req: NextRequest) {
   const admin = await getSessionAdmin(req);
   if (!admin) return NextResponse.json({ admin: null, venues: [] });
+
+  // An account the install requires two-factor sign-in of, before it has set it up, is told only that (its name and what to do): no
+  // venues, and no housekeeping on its behalf. It is signed in to enrol and nothing else (lib/admin-auth.ts `requireAdmin`, ADR 0064).
+  if (twoFactorRequired(admin) && !(await hasTwoFactor(admin.id)))
+    return NextResponse.json({ admin, venues: [], twoFactor: await twoFactorStatus(admin), canManage: false, may: staffMay("desk") });
 
   // Housekeeping, on the way past. There is no scheduler in this system, so
   // the retention policy applies itself the first time staff open the

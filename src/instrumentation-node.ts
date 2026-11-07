@@ -33,6 +33,11 @@ export async function startNode(): Promise<void> {
   }
   if (!process.env.ADMIN_EMAIL)
     warn("ADMIN_EMAIL is unset, so the first operator account is admin@mysenam.my.");
+  // Staff two-factor sign-in is on for managers of a production marketplace and cannot be switched off by a setting: a setting that tried
+  // is refused, said here and to the owners, and left on (ADR 0064).
+  const { checkStaffTwoFactorSetting } = await import("./lib/two-factor");
+  const refusedTwoFactor = await checkStaffTwoFactorSetting();
+  if (refusedTwoFactor) console.error(`[mysenam] ${refusedTwoFactor}`);
   const { scanMode, withdrawnOptOutSet } = await import("./lib/document-scanner");
   if (scanMode() === "unconfigured")
     warn("No malware scanner is configured (MYSENAM_CLAMD): supporting documents sent with applications wait in quarantine, and nobody can open them, until one is.");

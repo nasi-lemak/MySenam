@@ -166,7 +166,11 @@ owner and a business's last manager stay. **Removing** an account signs it
 out everywhere at once (its sessions and sign-in tickets go with it), and
 what it recorded (bookings, sales, credit, inductions) stays, without it
 (migration 0251); the
-activity log keeps the name. Two-factor resets stay the owner's and a
+activity log keeps the name. The API keys and webhook addresses the account owned
+stop with it (and with being made front desk), each logged, while the venue's own
+ones the person made keep working and are counted for the manager to review or
+rotate ([ADR 0064](decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md),
+[the public API](../integrations/external-api.md#public-api-and-webhooks)). Two-factor resets stay the owner's and a
 business manager's ([two-factor sign-in](authentication.md#two-factor-sign-in)).
 Every change is logged, and every refusal is in the staff languages.
 `tests/staff-accounts.test.ts` covers who may do what across branches.

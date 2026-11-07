@@ -631,6 +631,22 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     load();
   }
 
+  /** What the note has said and who changed it, newest first (lib/customer-notes.ts `noteHistory`): the venue's staff's, as the note is. */
+  async function showNoteHistory(b: AdminBookingRow) {
+    setError(null);
+    const res = await fetch(`/api/admin/customer-notes?venueId=${b.venueId}&phone=${encodeURIComponent(b.phone)}&history=1`, { cache: "no-store" });
+    const data = await readJson(res);
+    if (!res.ok) return setError(t.err(data, t("bk.noteFailed")));
+    const changes = (data.history ?? []) as { action: string; previous: string | null; note: string | null; changedBy: string | null; changedAt: string }[];
+    const said = (c: (typeof changes)[number]) =>
+      c.action === "erased" ? t("sec.note.erased", { was: c.previous ?? "" }) : c.action === "baseline" ? t("sec.note.baseline", { note: c.note ?? "" }) : t("sec.note.set", { note: c.note ?? "", was: c.previous ?? "—" });
+    window.alert(
+      changes.length === 0
+        ? t("sec.note.noHistory")
+        : [t("sec.note.historyTitle", { name: b.name }), ...changes.map((c) => `${clock.when(c.changedAt, b.venueId)} · ${c.changedBy ?? "—"} · ${said(c)}`)].join("\n")
+    );
+  }
+
   /** The customer signed the venue's waiver on paper at the desk (lib/waivers.ts). */
   async function paperWaiver(b: AdminBookingRow) {
     if (!window.confirm(t("bk.waiverConfirm", { name: b.name }))) return;
@@ -870,6 +886,7 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
     checkConcession,
     charge,
     writeNote,
+    showNoteHistory,
     paperWaiver,
     withdrawPerson,
     checkPlaceConcession,
@@ -1637,6 +1654,7 @@ interface Act {
   checkConcession: (b: AdminBookingRow, outcome: "seen" | "refused", remember?: string, via?: CounterMethod) => void;
   charge: (b: AdminBookingRow, accountId: number | null) => void;
   writeNote: (b: AdminBookingRow) => void;
+  showNoteHistory: (b: AdminBookingRow) => void;
   paperWaiver: (b: AdminBookingRow) => void;
   withdrawPerson: (b: AdminBookingRow, placeId: number | null, name: string | null) => void;
   checkPlaceConcession: (b: AdminBookingRow, placeBenefitId: number, outcome: "seen" | "refused", remember?: string) => void;
@@ -1683,14 +1701,19 @@ function StaffNote({ b, act }: { b: AdminBookingRow; act: Act }) {
       </button>
     );
   return (
-    <button
-      type="button"
-      onClick={() => act.writeNote(b)}
-      title={t("bk.changeNote")}
-      className="mt-1 block max-w-xs rounded bg-amber-50 px-2 py-0.5 text-left text-xs text-amber-900 ring-1 ring-amber-200"
-    >
-      📝 {b.staffNote}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => act.writeNote(b)}
+        title={t("bk.changeNote")}
+        className="mt-1 block max-w-xs rounded bg-amber-50 px-2 py-0.5 text-left text-xs text-amber-900 ring-1 ring-amber-200"
+      >
+        📝 {b.staffNote}
+      </button>
+      <button type="button" onClick={() => act.showNoteHistory(b)} className="text-xs text-slate-400 hover:text-teal-700" title={t("sec.note.historyButton")}>
+        🕘
+      </button>
+    </>
   );
 }
 

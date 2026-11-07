@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import QRCode from "qrcode";
 import { getDb } from "./db";
+import { isMarketplace } from "./mode";
 import { keyedHash, seal, unseal } from "./secrets";
 import { siteName } from "./site";
 
@@ -13,6 +14,13 @@ import { siteName } from "./site";
  * it on for itself; `MYSENAM_STAFF_2FA` makes it compulsory ("owners",
  * "managers" — owners and managers — or "all"), in which case an account
  * without it can sign in only to set it up.
+ *
+ * On a production marketplace it is compulsory for the platform owner, business managers and venue managers (front desk may choose)
+ * without anything being set, and `off` cannot undo that (`staffTwoFactor`, ADR 0064). An account without it is signed in to enrol and
+ * nothing else, whatever session it had before the rule applied.
+ *
+ * Every attempt at a code is counted before the code is looked at (`countAttempt`), per account and address, in the database, so
+ * parallel guesses cannot outrun the limit; every limit ends by itself (docs/architecture/authentication.md#two-factor-sign-in).
  */
 
 const STEP_SECONDS = 30;
@@ -22,6 +30,11 @@ const DRIFT_STEPS = 1;
 const RECOVERY_CODES = 10;
 const TICKET_MINUTES = 5;
 const TICKET_ATTEMPTS = 5;
+/** Attempts at a code from one address for one account in a window, and across every address for the account. */
+export const ADDRESS_ATTEMPTS = 10;
+export const ADDRESS_WINDOW_MS = 15 * 60_000;
+export const ACCOUNT_ATTEMPTS = 50;
+export const ACCOUNT_WINDOW_MS = 60 * 60_000;
 
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -107,14 +120,74 @@ async function row(adminId: number): Promise<Row | null> {
 
 const hashRecovery = (code: string) => keyedHash("recovery", code.replace(/[\s-]/g, "").toLowerCase());
 
+export type TwoFactorRule = "off" | "owners" | "managers" | "all";
+const SAID_OFF = new Set(["off", "none", "false", "0", "no"]);
+
+export interface StaffTwoFactorSetting {
+  /** Who must have it, as it is enforced now. */
+  rule: TwoFactorRule;
+  /** What `MYSENAM_STAFF_2FA` says, trimmed and lower case ("" when unset). */
+  configured: string;
+  /** On by the production marketplace's own default, whatever is configured. */
+  byDefault: boolean;
+  /** Set where it cannot be honoured, and what is done instead; null when the setting is fine. Shown at start-up and raised as an alert. */
+  refused: string | null;
+  /** Switched off, on a install that says it holds synthetic data only: honoured, and said loudly. */
+  offSynthetic: boolean;
+}
+
+/**
+ * Who must have two-factor sign-in on this install, from `MYSENAM_STAFF_2FA` and where it runs (ADR 0064).
+ *
+ * - Not a production marketplace (a development machine, the tests, an install of one venue's own): as configured; unset, each account
+ *   chooses. This is the override for development and tests, and nothing here changes it.
+ * - A **production marketplace**: at least `managers` (the platform owner, business managers, branch managers; front desk may choose),
+ *   whatever is set. `all` stays `all`, `owners` is raised to `managers`, and `off`, or a value that is not one of the rules (a typo),
+ *   is refused: enforcement carries on at `managers`, and `refused` says so for the start-up log and the owners' alert. The only way a
+ *   production marketplace runs without it is `MYSENAM_SYNTHETIC_DATA=on` with it off, for a staging or acceptance install that holds
+ *   synthetic data and nobody's real account (AGENTS.md); that is honoured and flagged all the same.
+ */
+export function staffTwoFactor(): StaffTwoFactorSetting {
+  const configured = (process.env.MYSENAM_STAFF_2FA ?? "").trim().toLowerCase();
+  const asked: TwoFactorRule | "invalid" | null =
+    configured === "" ? null : configured === "owners" || configured === "managers" || configured === "all" ? configured : SAID_OFF.has(configured) ? "off" : "invalid";
+  const production = process.env.NODE_ENV === "production" && isMarketplace();
+  if (!production) return { rule: asked === null || asked === "invalid" ? "off" : asked, configured, byDefault: false, refused: null, offSynthetic: false };
+  const synthetic = (process.env.MYSENAM_SYNTHETIC_DATA ?? "").trim().toLowerCase() === "on";
+  if (asked === "off" && synthetic) return { rule: "off", configured, byDefault: false, refused: null, offSynthetic: true };
+  const rule: TwoFactorRule = asked === "all" ? "all" : "managers";
+  const refused =
+    asked === "off"
+      ? "MYSENAM_STAFF_2FA is off on a production marketplace. That is refused: the platform owner, business managers and venue managers must still have two-factor sign-in. Remove the setting (or set it to managers or all)."
+      : asked === "invalid"
+        ? `MYSENAM_STAFF_2FA is "${configured}", which is not owners, managers or all. It is not read as off: the platform owner, business managers and venue managers must still have two-factor sign-in. Correct the setting.`
+        : null;
+  return { rule, configured, byDefault: asked !== "all" && asked !== "managers", refused, offSynthetic: false };
+}
+
 /** Whether this account must have two-factor sign-in, by the install's rule. */
 export function twoFactorRequired(admin: { venueId: number | null; businessId: number | null; role: string }): boolean {
-  const rule = (process.env.MYSENAM_STAFF_2FA ?? "").trim().toLowerCase();
+  const { rule } = staffTwoFactor();
   const owner = admin.venueId === null && admin.businessId === null;
   if (rule === "all") return true;
   if (rule === "managers") return owner || admin.role !== "desk";
   if (rule === "owners") return owner;
   return false;
+}
+
+/** Tell the log and the owners if the install's two-factor setting was refused, and clear the alert once it is right. Never throws. */
+export async function checkStaffTwoFactorSetting(): Promise<string | null> {
+  const { refused, offSynthetic } = staffTwoFactor();
+  try {
+    const { raiseAlert, clearAlert } = await import("./alerts");
+    if (refused) await raiseAlert("config:staff-2fa", "Staff two-factor sign-in is misconfigured and is being kept on", refused);
+    else if (offSynthetic)
+      await raiseAlert("config:staff-2fa", "Staff two-factor sign-in is off on a production marketplace (MYSENAM_SYNTHETIC_DATA=on)", "This is for staging and acceptance installs holding synthetic data only. If this install has real venues or customers, remove MYSENAM_STAFF_2FA=off now.");
+    else await clearAlert("config:staff-2fa");
+  } catch {
+    // The log line is the courtesy that remains.
+  }
+  return refused;
 }
 
 export interface TwoFactorStatus {
@@ -170,11 +243,45 @@ export async function confirmSetup(adminId: number, code: string): Promise<{ ok:
   return { ok: true, recoveryCodes: shown };
 }
 
+/** One bump of a counter, atomic: the count it reached, and when its window ends. */
+async function bump(adminId: number, key: string, windowMs: number, now: number): Promise<{ attempts: number; resetAt: number }> {
+  const row = (await getDb()
+    .prepare(
+      `INSERT INTO admin_two_factor_attempts (admin_id, address_key, attempts, reset_at) VALUES (?, ?, 1, ?)
+       ON CONFLICT (admin_id, address_key) DO UPDATE SET
+         attempts = CASE WHEN admin_two_factor_attempts.reset_at <= ? THEN 1 ELSE admin_two_factor_attempts.attempts + 1 END,
+         reset_at = CASE WHEN admin_two_factor_attempts.reset_at <= ? THEN excluded.reset_at ELSE admin_two_factor_attempts.reset_at END
+       RETURNING attempts, reset_at`
+    )
+    .get(adminId, key, now + windowMs, now, now)) as { attempts: number | string; reset_at: number | string };
+  return { attempts: Number(row.attempts), resetAt: Number(row.reset_at) };
+}
+
 /**
- * Check a code from the app, or one of the recovery codes (each good once).
- * True when it is right; the step or the recovery code is then used up.
+ * Count an attempt at this account's code, before the code is looked at, and say whether it may go on. Two counters, each one atomic
+ * upsert: this address for this account (`ADDRESS_ATTEMPTS` in `ADDRESS_WINDOW_MS`), then the account from anywhere
+ * (`ACCOUNT_ATTEMPTS` in `ACCOUNT_WINDOW_MS`). An attempt past a limit is refused and the code is not checked, so parallel guesses cannot
+ * outrun it; a refused attempt from an address does not count against the account, so one address cannot lock everybody out. Both end by
+ * themselves when their window does (the window is fixed: failing again does not extend it).
  */
-export async function checkSecondFactor(adminId: number, code: string): Promise<boolean> {
+export async function countAttempt(adminId: number, address: string, now = Date.now()): Promise<{ allowed: true } | { allowed: false; retryAfter: number }> {
+  const key = keyedHash("2fa-address", address || "unknown");
+  const own = await bump(adminId, key, ADDRESS_WINDOW_MS, now);
+  if (own.attempts > ADDRESS_ATTEMPTS) return { allowed: false, retryAfter: Math.max(1, Math.ceil((own.resetAt - now) / 1000)) };
+  const all = await bump(adminId, "*", ACCOUNT_WINDOW_MS, now);
+  if (all.attempts > ACCOUNT_ATTEMPTS) return { allowed: false, retryAfter: Math.max(1, Math.ceil((all.resetAt - now) / 1000)) };
+  return { allowed: true };
+}
+
+/** A right code: this address starts again, and the account is given its attempt back. Only ever after a code was right. */
+async function forgiveAttempt(adminId: number, address: string): Promise<void> {
+  const db = getDb();
+  await db.prepare("DELETE FROM admin_two_factor_attempts WHERE admin_id = ? AND address_key = ?").run(adminId, keyedHash("2fa-address", address || "unknown"));
+  await db.prepare("UPDATE admin_two_factor_attempts SET attempts = GREATEST(attempts - 1, 0) WHERE admin_id = ? AND address_key = '*'").run(adminId);
+}
+
+/** The code itself: right now (one step either side, newer than the last used), or a recovery code not yet used. Uses it up. */
+async function codeIsRight(adminId: number, code: string): Promise<boolean> {
   const r = await row(adminId);
   if (!r?.totp_enabled_at || !r.totp_secret) return false;
   const secret = unseal(r.totp_secret);
@@ -197,10 +304,38 @@ export async function checkSecondFactor(adminId: number, code: string): Promise<
   return done.changes === 1;
 }
 
+export type SecondFactorCheck = { ok: true } | { ok: false; locked: false } | { ok: false; locked: true; retryAfter: number };
+
+/**
+ * Check a code from the app, or one of the recovery codes (each good once), counting the attempt first (`countAttempt`). `address` is where the
+ * request came from (lib/rate-limit.ts `clientAddress`); one caller that has none shares an address of its own.
+ */
+export async function verifySecondFactor(adminId: number, code: string, address = ""): Promise<SecondFactorCheck> {
+  const counted = await countAttempt(adminId, address);
+  if (!counted.allowed) return { ok: false, locked: true, retryAfter: counted.retryAfter };
+  if (!(await codeIsRight(adminId, code))) return { ok: false, locked: false };
+  await forgiveAttempt(adminId, address);
+  return { ok: true };
+}
+
+/** True when the code is right (and used up), counted and limited as `verifySecondFactor` says. */
+export async function checkSecondFactor(adminId: number, code: string, address = ""): Promise<boolean> {
+  return (await verifySecondFactor(adminId, code, address)).ok;
+}
+
+/** An account's attempt counters cleared: after its two-factor sign-in was reset by somebody with authority over it. */
+export async function clearAttempts(adminId: number): Promise<void> {
+  await getDb().prepare("DELETE FROM admin_two_factor_attempts WHERE admin_id = ?").run(adminId);
+}
+
 /** Turn it off, with a current code (or a recovery code) to show it is the owner of the account doing so. */
-export async function disableTwoFactor(admin: { id: number; venueId: number | null; businessId: number | null; role: string }, code: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function disableTwoFactor(
+  admin: { id: number; venueId: number | null; businessId: number | null; role: string },
+  code: string,
+  address = ""
+): Promise<{ ok: true } | { ok: false; error: string }> {
   if (twoFactorRequired(admin)) return { ok: false, error: "Two-factor sign-in is required for this account here." };
-  if (!(await checkSecondFactor(admin.id, code))) return { ok: false, error: "That code is not right." };
+  if (!(await checkSecondFactor(admin.id, code, address))) return { ok: false, error: "That code is not right." };
   await getDb()
     .prepare("UPDATE admins SET totp_secret = NULL, totp_pending = NULL, totp_enabled_at = NULL, recovery_codes = NULL WHERE id = ?")
     .run(admin.id);
@@ -208,8 +343,8 @@ export async function disableTwoFactor(admin: { id: number; venueId: number | nu
 }
 
 /** New recovery codes, the old ones void: when they are used up or may have been seen. */
-export async function renewRecoveryCodes(adminId: number, code: string): Promise<{ ok: true; recoveryCodes: string[] } | { ok: false; error: string }> {
-  if (!(await checkSecondFactor(adminId, code))) return { ok: false, error: "That code is not right." };
+export async function renewRecoveryCodes(adminId: number, code: string, address = ""): Promise<{ ok: true; recoveryCodes: string[] } | { ok: false; error: string }> {
+  if (!(await checkSecondFactor(adminId, code, address))) return { ok: false, error: "That code is not right." };
   const { shown, stored } = newRecoveryCodes();
   await getDb().prepare("UPDATE admins SET recovery_codes = ? WHERE id = ?").run(JSON.stringify(stored), adminId);
   return { ok: true, recoveryCodes: shown };
@@ -231,18 +366,32 @@ export async function issueLoginTicket(adminId: number): Promise<string> {
   return token;
 }
 
-/** The ticket and a right code: whose sign-in it completes. A few wrong codes and the ticket is gone. */
-export async function redeemLoginTicket(token: string, code: string): Promise<{ ok: true; adminId: number } | { ok: false; error: string }> {
+const TICKET_GONE = "That sign-in has timed out. Enter your password again.";
+
+/**
+ * The ticket and a right code: whose sign-in it completes. The attempt is counted on the ticket first, in the one statement that takes
+ * it (so parallel requests cannot all pass the cap before any is counted), and on the account and address next (`countAttempt`); only
+ * then is the code looked at. A ticket is good for `TICKET_ATTEMPTS` tries and five minutes and for one sign-in: it is used up by the
+ * first right code, and a second request holding it, however close behind, is turned away. Wrong, expired, used and unknown tickets
+ * are answered alike, and nothing says whether the account exists or which factor it has.
+ */
+export async function redeemLoginTicket(
+  token: string,
+  code: string,
+  address = ""
+): Promise<{ ok: true; adminId: number } | { ok: false; error: string; locked?: boolean; retryAfter?: number }> {
   const db = getDb();
-  const ticket = (await db
-    .prepare("SELECT admin_id, attempts FROM admin_login_tickets WHERE token = ? AND expires_at >= ?")
-    .get(token, new Date().toISOString())) as { admin_id: number; attempts: number } | undefined;
-  if (!ticket) return { ok: false, error: "That sign-in has timed out. Enter your password again." };
-  if (await checkSecondFactor(ticket.admin_id, code)) {
-    await db.prepare("DELETE FROM admin_login_tickets WHERE token = ?").run(token);
-    return { ok: true, adminId: ticket.admin_id };
+  const claimed = (await db
+    .prepare("UPDATE admin_login_tickets SET attempts = attempts + 1 WHERE token = ? AND expires_at >= ? AND attempts < ? RETURNING admin_id, attempts")
+    .get(token, new Date().toISOString(), TICKET_ATTEMPTS)) as { admin_id: number; attempts: number } | undefined;
+  if (!claimed) return { ok: false, error: TICKET_GONE };
+  const verdict = await verifySecondFactor(claimed.admin_id, code, address);
+  if (verdict.ok) {
+    // Used up by taking it: of two requests with a right code, one signs in.
+    const taken = await db.prepare("DELETE FROM admin_login_tickets WHERE token = ? RETURNING admin_id").get(token);
+    return taken ? { ok: true, adminId: claimed.admin_id } : { ok: false, error: TICKET_GONE };
   }
-  if (ticket.attempts + 1 >= TICKET_ATTEMPTS) await db.prepare("DELETE FROM admin_login_tickets WHERE token = ?").run(token);
-  else await db.prepare("UPDATE admin_login_tickets SET attempts = attempts + 1 WHERE token = ?").run(token);
+  if (claimed.attempts >= TICKET_ATTEMPTS) await db.prepare("DELETE FROM admin_login_tickets WHERE token = ?").run(token);
+  if (verdict.locked) return { ok: false, error: "Too many attempts. Please wait a moment and try again.", locked: true, retryAfter: verdict.retryAfter };
   return { ok: false, error: "That code is not right." };
 }

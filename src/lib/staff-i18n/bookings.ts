@@ -936,6 +936,12 @@ const en = {
   "p67.bk.changedRefundOnline": "{code} is now {date}, {time}. Same code; {amount} is owed back on its online payment (see Refunds owed). The customer has been sent the news.",
   "p67.bk.changedRefundCounter": "{code} is now {date}, {time}. Same code; {amount} is owed back at the counter (see the counter money owed back). The customer has been sent the news.",
   "p67.bk.changedRefundCredit": "{code} is now {date}, {time}. Same code; {amount} went back to the customer's stored credit. The customer has been sent the news.",
+  "sec.note.historyButton": "What this note said before, and who changed it",
+  "sec.note.historyTitle": "Changes to the note on {name}, newest first:",
+  "sec.note.noHistory": "No changes have been kept for this note.",
+  "sec.note.set": "now “{note}” (was: {was})",
+  "sec.note.erased": "taken away (it said: “{was}”)",
+  "sec.note.baseline": "the note as it stood when history began: “{note}”",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -1853,6 +1859,12 @@ const ms: Record<keyof typeof en, string> = {
   "p67.bk.changedRefundOnline": "{code} kini pada {date}, {time}. Kod sama; {amount} terhutang untuk dipulangkan pada bayaran dalam talian (lihat Bayaran balik terhutang). Pelanggan sudah dimaklumkan.",
   "p67.bk.changedRefundCounter": "{code} kini pada {date}, {time}. Kod sama; {amount} terhutang untuk dipulangkan di kaunter (lihat wang kaunter terhutang). Pelanggan sudah dimaklumkan.",
   "p67.bk.changedRefundCredit": "{code} kini pada {date}, {time}. Kod sama; {amount} dipulangkan ke kredit tersimpan pelanggan. Pelanggan sudah dimaklumkan.",
+  "sec.note.historyButton": "Apa yang nota ini katakan sebelum ini, dan siapa yang mengubahnya",
+  "sec.note.historyTitle": "Perubahan pada nota tentang {name}, terbaharu dahulu:",
+  "sec.note.noHistory": "Tiada perubahan disimpan untuk nota ini.",
+  "sec.note.set": "kini “{note}” (sebelum ini: {was})",
+  "sec.note.erased": "dibuang (ia berbunyi: “{was}”)",
+  "sec.note.baseline": "nota seperti keadaannya apabila sejarah bermula: “{note}”",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -2770,6 +2782,12 @@ const zh: Record<keyof typeof en, string> = {
   "p67.bk.changedRefundOnline": "{code} 现为 {date}，{time}。编号不变；{amount} 应退回其在线付款（见“待退款”）。已通知顾客。",
   "p67.bk.changedRefundCounter": "{code} 现为 {date}，{time}。编号不变；{amount} 应在柜台退还（见待退还的柜台款项）。已通知顾客。",
   "p67.bk.changedRefundCredit": "{code} 现为 {date}，{time}。编号不变；{amount} 已退回顾客的储值。已通知顾客。",
+  "sec.note.historyButton": "此备注此前的内容及修改人",
+  "sec.note.historyTitle": "关于 {name} 的备注的修改记录（最新在前）：",
+  "sec.note.noHistory": "此备注没有保留任何修改记录。",
+  "sec.note.set": "现为“{note}”（原为：{was}）",
+  "sec.note.erased": "已删除（原内容：“{was}”）",
+  "sec.note.baseline": "开始保留记录时的备注：“{note}”",
 };
 
 const area = { en, ms, zh };

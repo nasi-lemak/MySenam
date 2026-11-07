@@ -73,3 +73,32 @@ describe("one business manager removing another", () => {
     expect(row).toEqual({ venue_id: null, business_id: business });
   });
 });
+
+/**
+ * Entries written before migration 0301 carry no business (venue_id and business_id both null): which business they were about was
+ * never recorded and is not guessed. They stay the platform owner's to read (ADR 0064, audit A8): no business manager, branch manager or
+ * front desk sees them, whichever business they would seem to be about.
+ */
+describe("entries from before the business was recorded", () => {
+  it("are the platform owner's alone", async () => {
+    await getDb()
+      .prepare("INSERT INTO staff_actions (admin_name, venue_id, business_id, action, detail) VALUES ('Old Bina', NULL, NULL, 'staff.removed', 'Legacy Dato (legacy@chain.my)')")
+      .run();
+    const seenBy = async (admin: Admin) => {
+      const cookie = `${ADMIN_SESSION_COOKIE}=${(await createAdminSession(admin.id)).token}`;
+      const res = await activity(new NextRequest("http://localhost/api/admin/activity?limit=1000", { headers: { cookie } }));
+      return res.status === 200 ? ((await res.json()) as { actions: { detail: string }[] }).actions : [];
+    };
+    const legacy = (a: { detail: string }) => a.detail.includes("Legacy Dato");
+    expect((await seenBy(bina)).some(legacy)).toBe(false);
+    expect((await seenBy(chen)).some(legacy)).toBe(false);
+    const v = await createVenue({ name: "Legacy Branch", area: "PJ", address: "1 Jalan Lama", phone: "0377770066" });
+    if (!v.ok) throw new Error(v.error);
+    await getDb().prepare("UPDATE venues SET business_id = ? WHERE id = ?").run(business, v.venue.id);
+    const branch = await createAdmin({ name: "Legacy Boss", email: "legacy-boss@chain.my", password: "a long enough password", venueId: v.venue.id, role: "manager" });
+    if (!branch.ok) throw new Error(branch.error);
+    expect((await seenBy(branch.admin)).some(legacy)).toBe(false);
+    const owner = (await listAdmins()).find((a) => a.venueId === null && a.businessId === null)!;
+    expect((await seenBy(owner)).some(legacy)).toBe(true);
+  });
+});

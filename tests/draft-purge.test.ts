@@ -15,7 +15,7 @@ import { getDb } from "../src/lib/db";
 import { deleteStaleDrafts, draftDeletionPlan, foreignKeysByParent, staleDrafts } from "../src/lib/drafts";
 import * as privacy from "../src/lib/privacy";
 import { createLadder } from "../src/lib/ladders";
-import { createCourt } from "../src/lib/store";
+import { createBooking, createCourt } from "../src/lib/store";
 import { createTournament } from "../src/lib/tournaments";
 import { addDays, todayISO } from "../src/lib/time";
 
@@ -128,6 +128,54 @@ describe("a stale draft that set up more than a court", () => {
     expect(await venueGone(stale.venueId)).toBe(true);
     expect(await venueGone(fresh.venueId)).toBe(false);
     expect(await venueGone(withMoney.venueId)).toBe(false);
+  });
+
+  it("leaves a draft holding the record of real money taken at the counter in a test booking: receipts, owed-back records, payouts, counter sales, a paid booking, a hire deposit (A15)", async () => {
+    const db = getDb();
+    const draft = async () => {
+      const d = await signUp();
+      const made = await createBooking({ courtId: d.courtId, date: addDays(todayISO(), 3), hours: [10], name: "Tester", phone: "0123450000", by: "staff" });
+      if (!made.ok) throw new Error(made.error);
+      const booking = { id: made.booking.id };
+      return { ...d, bookingId: booking.id };
+    };
+    const kinds: Record<string, (d: Awaited<ReturnType<typeof draft>>) => Promise<void>> = {
+      receipt: async (d) => {
+        await db
+          .prepare("INSERT INTO receipts (venue_id, kind, seq, number, source, customer_name, lines, total) VALUES (?, 'receipt', 1, ?, ?, 'Tester', '[]', 20)")
+          .run(d.venueId, `R-${d.venueId}`, `booking:${d.bookingId}`);
+      },
+      owedBack: async (d) => {
+        await db.prepare("INSERT INTO counter_refunds_owed (venue_id, booking_id, amount, via, cause) VALUES (?, ?, 20, 'cash', 'closure')").run(d.venueId, d.bookingId);
+      },
+      payout: async (d) => {
+        await db.prepare("INSERT INTO counter_payouts (venue_id, booking_id, amount, via, admin_name) VALUES (?, ?, 20, 'cash', 'Dee')").run(d.venueId, d.bookingId);
+      },
+      counterSale: async (d) => {
+        await db.prepare("INSERT INTO counter_sales (venue_id, lines, total, paid_via) VALUES (?, '[]', 5, 'cash')").run(d.venueId);
+      },
+      paidBooking: async (d) => {
+        await db.prepare("UPDATE bookings SET payment_status = 'paid', paid_via = 'cash' WHERE id = ?").run(d.bookingId);
+      },
+      hireDeposit: async (d) => {
+        await db.prepare("INSERT INTO hire_records (booking_id, deposit) VALUES (?, 50)").run(d.bookingId);
+      },
+    };
+    const kept: Record<string, number> = {};
+    for (const [kind, put] of Object.entries(kinds)) {
+      const d = await draft();
+      await put(d);
+      kept[kind] = d.venueId;
+    }
+    // The same draft with only an unpaid test booking and nothing recorded goes, as before.
+    const plain = await draft();
+    await purge();
+    for (const [kind, venueId] of Object.entries(kept)) expect(await venueGone(venueId), kind).toBe(false);
+    expect(await venueGone(plain.venueId)).toBe(true);
+    // And what was kept is still there, untouched.
+    expect(await db.prepare("SELECT 1 FROM receipts WHERE venue_id = ?").get(kept.receipt)).toBeDefined();
+    expect(await db.prepare("SELECT 1 FROM counter_refunds_owed WHERE venue_id = ?").get(kept.owedBack)).toBeDefined();
+    expect(await db.prepare("SELECT 1 FROM counter_payouts WHERE venue_id = ?").get(kept.payout)).toBeDefined();
   });
 
   it("one draft that cannot be deleted is left and reported, the others still go, and the retention run completes", async () => {

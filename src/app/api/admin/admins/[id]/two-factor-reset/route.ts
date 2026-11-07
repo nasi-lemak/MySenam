@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { resetTwoFactorFor } from "@/lib/two-factor-reset";
 import { jsonObject } from "@/lib/api";
+import { clientAddress } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
-  const done = await resetTwoFactorFor(admin, targetId, { reason: body.reason, code: body.code });
+  const done = await resetTwoFactorFor(admin, targetId, { reason: body.reason, code: body.code, address: clientAddress(req) });
   if (!done.ok) return NextResponse.json({ error: done.error }, { status: done.status });
   return NextResponse.json({ ok: true });
 }

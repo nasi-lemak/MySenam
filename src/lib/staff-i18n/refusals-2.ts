@@ -1016,4 +1016,8 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That delivery was not found for this venue.": { ms: "Penghantaran itu tidak ditemui untuk pusat ini.", zh: "在本场馆未找到该推送。" },
   "Turn the address back on before sending an event again.": { ms: "Hidupkan semula alamat itu sebelum menghantar semula sesuatu acara.", zh: "请先重新开启该地址，再重新发送事件。" },
   "Say which delivery or address to send again.": { ms: "Nyatakan penghantaran atau alamat yang hendak dihantar semula.", zh: "请指明要重新发送的推送或地址。" },
+  "That key's owner no longer manages this venue, so it stays stopped. Make a new key (rotate it) instead.": { ms: "Pemilik kunci itu tidak lagi menguruskan pusat ini, jadi ia kekal dihentikan. Buat kunci baharu (putarkannya) sebaliknya.", zh: "该密钥的所有者不再管理本场馆，因此它保持停止。请改为新建一个密钥（轮换）。" },
+  "That address's owner no longer manages this venue, so it stays stopped. Add it again, or rotate it, instead.": { ms: "Pemilik alamat itu tidak lagi menguruskan pusat ini, jadi ia kekal dihentikan. Tambah semula, atau putarkannya, sebaliknya.", zh: "该地址的所有者不再管理本场馆，因此它保持停止。请重新添加，或改为轮换。" },
+  "That person does not manage this venue.": { ms: "Orang itu tidak menguruskan pusat ini.", zh: "该人员并不管理本场馆。" },
+  "Address not found.": { ms: "Alamat tidak ditemui.", zh: "找不到该地址。" },
 };

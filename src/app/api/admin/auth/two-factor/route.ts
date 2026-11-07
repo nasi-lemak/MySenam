@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { confirmSetup, disableTwoFactor, renewRecoveryCodes, startSetup, twoFactorStatus } from "@/lib/two-factor";
-import { rateLimit } from "@/lib/rate-limit";
+import { clientAddress, rateLimit } from "@/lib/rate-limit";
 import { logAction } from "@/lib/activity";
 
 export const dynamic = "force-dynamic";
@@ -40,11 +40,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...done, status: await twoFactorStatus(admin) });
     }
     case "renew": {
-      const done = await renewRecoveryCodes(admin.id, code);
+      const done = await renewRecoveryCodes(admin.id, code, clientAddress(req));
       return done.ok ? NextResponse.json(done) : NextResponse.json(done, { status: 400 });
     }
     case "disable": {
-      const done = await disableTwoFactor(admin, code);
+      const done = await disableTwoFactor(admin, code, clientAddress(req));
       if (!done.ok) return NextResponse.json(done, { status: 400 });
       await logAction(admin, { venueId: admin.venueId, action: "settings.changed", detail: "Two-factor sign-in turned off" });
       return NextResponse.json({ status: await twoFactorStatus(admin) });

@@ -4,6 +4,8 @@ import dns from "dns";
 import https from "https";
 import net from "net";
 import { getDb } from "./db";
+import type { Admin } from "./admin-auth";
+import { OWNER_CURRENT, mayHoldCredentialAt, type Ownership } from "./credential-owners";
 import { tellVenueStaffEach } from "./owner-alerts";
 import { seal, unseal } from "./secrets";
 import { siteName } from "./site";
@@ -31,6 +33,9 @@ import { addDays } from "./time";
  *   resolve to a private, loopback or link-local address. The check is the
  *   lookup the connection itself uses (`pinnedLookup`), so a name that
  *   answers differently a moment later (DNS rebinding) cannot slip past it.
+ * - **Whose it is:** a person's address stops, and nothing more is sent to it, when its owner no longer manages the venue; the venue's
+ *   own address does not depend on whoever added it (lib/credential-owners.ts, ADR 0064). Checked when an event is queued and again
+ *   when it is sent, so one queued before the person left is not delivered after.
  */
 
 export const WEBHOOK_EVENTS = ["booking.created", "booking.cancelled", "booking.paid", "booking.changed"] as const;
@@ -65,6 +70,15 @@ export interface Endpoint {
   /** How many deliveries to this address used up their attempts and are still held (the newest are in `failed`). */
   failedCount: number;
   failed: FailedDelivery[];
+  /** Whose it is: a person's stops when they stop managing the venue; the venue's does not. */
+  ownership: Ownership;
+  ownerId: number | null;
+  ownerName: string | null;
+  madeBy: string | null;
+  /** Why the system turned it off where it did (its owner left); null otherwise. */
+  stoppedReason: string | null;
+  /** A person's address whose owner no longer has the authority for it: nothing is sent to it. */
+  ownerLost: boolean;
   recent: { event: string; status: number | null; deliveredAt: string | null; attempts: number; error: string | null; at: string }[];
 }
 
@@ -118,16 +132,22 @@ export function isPrivate(address: string): boolean {
   return false;
 }
 
-export async function addEndpoint(venueId: number, rawUrl: unknown): Promise<{ ok: true; secret: string; endpoint: Endpoint } | { ok: false; error: string }> {
+export async function addEndpoint(
+  venueId: number,
+  rawUrl: unknown,
+  who: { adminId: number | null; ownership?: unknown } = { adminId: null }
+): Promise<{ ok: true; secret: string; endpoint: Endpoint } | { ok: false; error: string }> {
   const url = readUrl(rawUrl);
   if (typeof url === "string") return { ok: false, error: url };
   const db = getDb();
   const count = (await db.prepare("SELECT COUNT(*) AS n FROM webhook_endpoints WHERE venue_id = ?").get(venueId)) as { n: number | string };
   if (Number(count.n) >= MAX_ENDPOINTS) return { ok: false, error: `${MAX_ENDPOINTS} addresses at most. Remove one first.` };
   const secret = `whsec_${crypto.randomBytes(24).toString("base64url")}`;
+  // A person's unless the manager says it is the venue's: an address nobody said anything about stops with the person who added it.
+  const ownership: Ownership = who.ownership === "venue" || who.adminId === null ? "venue" : "person";
   const row = (await db
-    .prepare("INSERT INTO webhook_endpoints (venue_id, url, secret) VALUES (?, ?, ?) RETURNING id")
-    .get(venueId, url.toString(), seal(secret))) as { id: number };
+    .prepare("INSERT INTO webhook_endpoints (venue_id, url, secret, admin_id, ownership, owner_admin_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id")
+    .get(venueId, url.toString(), seal(secret), who.adminId, ownership, ownership === "person" ? who.adminId : null)) as { id: number };
   return { ok: true, secret, endpoint: (await listEndpoints(venueId)).find((e) => e.id === row.id)! };
 }
 
@@ -136,20 +156,75 @@ export async function removeEndpoint(id: number, venueId: number): Promise<boole
   return done.changes === 1;
 }
 
-/** Back on after it was turned off for failing. */
+/**
+ * Back on after it was turned off for failing. Not for a person's address whose owner no longer manages the venue: its secret was theirs,
+ * so it is replaced (rotated), not revived.
+ */
 export async function resumeEndpoint(id: number, venueId: number): Promise<boolean> {
-  const done = await getDb().prepare("UPDATE webhook_endpoints SET active = 1, failing_since = NULL WHERE id = ? AND venue_id = ?").run(id, venueId);
+  const done = await getDb()
+    .prepare(`UPDATE webhook_endpoints e SET active = 1, failing_since = NULL, stopped_reason = NULL WHERE e.id = ? AND e.venue_id = ? AND ${OWNER_CURRENT("e")}`)
+    .run(id, venueId);
   return done.changes === 1;
+}
+
+export type EndpointChange = { ok: true; detail: string; secret?: string } | { ok: false; error: string; status: number };
+
+/** Hand an address to the venue or to a person who manages it now, by a manager (on the record). Not one whose owner has lost the authority. */
+export async function reassignEndpoint(id: number, venueId: number, to: "venue" | number, by: Admin): Promise<EndpointChange> {
+  const db = getDb();
+  const e = (await db
+    .prepare(
+      `SELECT e.url, e.ownership, o.name AS owner_name, (e.ownership = 'person' AND NOT ${OWNER_CURRENT("e")}) AS owner_lost
+         FROM webhook_endpoints e LEFT JOIN admins o ON o.id = e.owner_admin_id WHERE e.id = ? AND e.venue_id = ?`
+    )
+    .get(id, venueId)) as { url: string; ownership: Ownership; owner_name: string | null; owner_lost: boolean } | undefined;
+  if (!e) return { ok: false, error: "Address not found.", status: 404 };
+  if (e.owner_lost)
+    return { ok: false, error: "That address's owner no longer manages this venue, so it stays stopped. Add it again, or rotate it, instead.", status: 409 };
+  if (to !== "venue" && !(await mayHoldCredentialAt(to, venueId))) return { ok: false, error: "That person does not manage this venue.", status: 409 };
+  const target = to === "venue" ? null : to;
+  await db.prepare("UPDATE webhook_endpoints SET ownership = ?, owner_admin_id = ? WHERE id = ? AND venue_id = ?").run(target === null ? "venue" : "person", target, id, venueId);
+  const who = target === null ? null : (((await db.prepare("SELECT name FROM admins WHERE id = ?").get(target)) as { name: string } | undefined)?.name ?? null);
+  return { ok: true, detail: `Webhook ${e.url} handed from ${e.ownership === "venue" ? "the venue" : (e.owner_name ?? "its owner")} to ${who ?? "the venue"} by ${by.name}` };
+}
+
+/**
+ * A new signing secret for an address, the old one dead at once (shown this once): the remedy for a secret somebody who should no longer
+ * have it may have seen. The address is the venue's if it was, else belongs to whoever rotates it; where it had stopped because its owner
+ * left it is on again.
+ */
+export async function rotateEndpointSecret(id: number, venueId: number, by: Admin): Promise<EndpointChange> {
+  const db = getDb();
+  const e = (await db.prepare("SELECT url, ownership FROM webhook_endpoints WHERE id = ? AND venue_id = ?").get(id, venueId)) as { url: string; ownership: Ownership } | undefined;
+  if (!e) return { ok: false, error: "Address not found.", status: 404 };
+  const secret = `whsec_${crypto.randomBytes(24).toString("base64url")}`;
+  await db
+    .prepare("UPDATE webhook_endpoints SET secret = ?, owner_admin_id = ?, active = 1, failing_since = NULL, stopped_reason = NULL WHERE id = ? AND venue_id = ?")
+    .run(seal(secret), e.ownership === "person" ? by.id : null, id, venueId);
+  return { ok: true, secret, detail: `Webhook ${e.url} rotated by ${by.name}: a new signing secret was made, the old one stopped` };
 }
 
 export async function listEndpoints(venueId: number): Promise<Endpoint[]> {
   const db = getDb();
-  const rows = (await db.prepare("SELECT id, url, active, created_at, failing_since FROM webhook_endpoints WHERE venue_id = ? ORDER BY id").all(venueId)) as {
+  const rows = (await db
+    .prepare(
+      `SELECT e.id, e.url, e.active, e.created_at, e.failing_since, e.ownership, e.owner_admin_id, e.stopped_reason, o.name AS owner_name, m.name AS made_by,
+              (e.ownership = 'person' AND NOT ${OWNER_CURRENT("e")}) AS owner_lost
+         FROM webhook_endpoints e LEFT JOIN admins o ON o.id = e.owner_admin_id LEFT JOIN admins m ON m.id = e.admin_id
+        WHERE e.venue_id = ? ORDER BY e.id`
+    )
+    .all(venueId)) as {
     id: number;
     url: string;
     active: number;
     created_at: string;
     failing_since: string | null;
+    ownership: Ownership;
+    owner_admin_id: number | null;
+    stopped_reason: string | null;
+    owner_name: string | null;
+    made_by: string | null;
+    owner_lost: boolean;
   }[];
   const out: Endpoint[] = [];
   for (const r of rows) {
@@ -195,6 +270,12 @@ export async function listEndpoints(venueId: number): Promise<Endpoint[]> {
         redeliveries: d.redeliveries,
         redeliveredAt: d.redelivered_at,
       })),
+      ownership: r.ownership,
+      ownerId: r.owner_admin_id,
+      ownerName: r.owner_name,
+      madeBy: r.made_by,
+      stoppedReason: r.stopped_reason,
+      ownerLost: r.owner_lost === true,
       recent: recent.map((d) => ({ event: d.event, status: d.last_status, deliveredAt: d.delivered_at, attempts: d.attempts, error: d.last_error, at: d.created_at })),
     });
   }
@@ -245,7 +326,7 @@ export async function redeliverFailed(
 async function queue(venueId: number, event: WebhookEvent, data: Record<string, unknown>, onlyEndpoint?: number): Promise<number> {
   const db = getDb();
   const endpoints = (await db
-    .prepare(`SELECT id FROM webhook_endpoints WHERE venue_id = ? AND active = 1${onlyEndpoint ? " AND id = ?" : ""}`)
+    .prepare(`SELECT e.id FROM webhook_endpoints e WHERE e.venue_id = ? AND e.active = 1 AND ${OWNER_CURRENT("e")}${onlyEndpoint ? " AND e.id = ?" : ""}`)
     .all(...(onlyEndpoint ? [venueId, onlyEndpoint] : [venueId]))) as { id: number }[];
   for (const e of endpoints) {
     const payload = JSON.stringify({ id: `evt_${crypto.randomBytes(12).toString("hex")}`, type: event, created: new Date().toISOString(), data });
@@ -318,7 +399,7 @@ const bookingOf = (r: SeenRow) => ({
  */
 export async function sweepWebhookEvents(now = new Date()): Promise<number> {
   const db = getDb();
-  const venues = (await db.prepare("SELECT DISTINCT venue_id FROM webhook_endpoints WHERE active = 1").all()) as { venue_id: number }[];
+  const venues = (await db.prepare(`SELECT DISTINCT e.venue_id FROM webhook_endpoints e WHERE e.active = 1 AND ${OWNER_CURRENT("e")}`).all()) as { venue_id: number }[];
   if (venues.length === 0) return 0;
   const today = now.toISOString().slice(0, 10);
   const recent = new Date(now.getTime() - 2 * 86_400_000).toISOString().replace("T", " ").slice(0, 19);
@@ -417,7 +498,7 @@ export async function deliverWebhooks(now = new Date()): Promise<{ sent: number;
     .prepare(
       `SELECT d.id, d.payload, d.attempts, e.id AS endpoint_id, e.venue_id, e.url, e.secret, e.failing_since
          FROM webhook_deliveries d JOIN webhook_endpoints e ON e.id = d.endpoint_id
-        WHERE d.delivered_at IS NULL AND d.attempts < ? AND d.next_at <= ? AND e.active = 1
+        WHERE d.delivered_at IS NULL AND d.attempts < ? AND d.next_at <= ? AND e.active = 1 AND ${OWNER_CURRENT("e")}
         ORDER BY d.id LIMIT 100`
     )
     .all(MAX_ATTEMPTS, stamp)) as {

@@ -54,6 +54,10 @@ export default async function setup(project: TestProject) {
       MYSENAM_URL: url,
       ADMIN_EMAIL: OWNER.email,
       ADMIN_PASSWORD: OWNER.password,
+      // The acceptance server runs as a production marketplace holding synthetic data only, where its scenarios sign managers in with a
+      // password: the one way staff two-factor sign-in is left off there (lib/two-factor.ts `staffTwoFactor`, ADR 0064). Said in its log.
+      MYSENAM_STAFF_2FA: "off",
+      MYSENAM_SYNTHETIC_DATA: "on",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

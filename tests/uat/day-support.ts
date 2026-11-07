@@ -52,6 +52,9 @@ export async function clockedServer(dir: string): Promise<ClockedServer> {
       MYSENAM_URL: base,
       ADMIN_EMAIL: OWNER.email,
       ADMIN_PASSWORD: OWNER.password,
+      // Synthetic data only: the one way staff two-factor sign-in is left off on a production marketplace (tests/e2e/server.ts, ADR 0064).
+      MYSENAM_STAFF_2FA: "off",
+      MYSENAM_SYNTHETIC_DATA: "on",
       UAT_CLOCK_FILE: clockFile,
       NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import ${preload}`.trim(),
     },

@@ -82,7 +82,8 @@ export function mayUse(ctx: Pick<McpContext, "caller" | "person">, tool: Pick<Mc
   if (tool.authority === "public") return true;
   if (ctx.person)
     return tool.scope !== undefined && ctx.person.scopes.includes(tool.scope) && (tool.staffAction === undefined || staffMay(ctx.person.role)[tool.staffAction]);
-  if (ctx.caller && tool.authority !== "signedIn") return RANK[ctx.caller.scope] >= RANK[tool.authority];
+  // A key of a suspended venue or business reads but does not write (lib/api-keys.ts `apiCaller`, ADR 0064).
+  if (ctx.caller && tool.authority !== "signedIn") return RANK[ctx.caller.scope] >= RANK[tool.authority] && !(ctx.caller.suspended && tool.authority === "write");
   return false;
 }
 

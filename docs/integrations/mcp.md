@@ -46,6 +46,9 @@ Only the `Authorization` header says who is calling. At `/api/mcp`:
   checked exactly as `/api/v1` checks it (`apiCaller` in `src/lib/api-keys.ts`:
   only the key's SHA-256 is looked up, a revoked key is refused at once, *last
   used* is updated). Any key's scope may connect; each tool asks for its own.
+  A person's key whose owner no longer manages the venue is refused like a revoked
+  one, and the tools that write are not offered to a key of a suspended venue or
+  business ([ADR 0064](../architecture/decisions/0064-credentials-follow-their-owners-two-factor-by-default-and-counted-attempts.md)).
 - **A header that is not a good key** (unknown, revoked, malformed, another
   scheme) is refused with `401` and `WWW-Authenticate: Bearer realm="mysenam",
   error="invalid_token"`, never answered as if nobody had called. A sign-in
