@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
  * this once); `revoke` with `id`; `webhook` with `url` (its signing secret in
  * the answer, this once); `remove`, `ping` or `resume` with `id`; `redeliver` with
  * `deliveryId` (one failed delivery) or `id` (an address's failed deliveries, at
- * most 50 at once): the same events sent again, audited (docs/integrations/external-api.md#webhooks); `google`
+ * most 50 at once): the same events sent again, audited (docs/integrations/external-api.md#public-api-and-webhooks); `google`
  * with `on`; `aiPersonalData` with `on` (true or false): whether AI assistants
  * using the venue's keys through the MCP server see customers' names, phone
  * numbers and emails, recorded with who and when (managers only, as all of
