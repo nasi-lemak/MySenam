@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { asStaff } from "@/lib/acting-staff";
 import { logAction } from "@/lib/activity";
 import { denyVenue, requireAdmin } from "@/lib/admin-auth";
 import { refusal } from "@/lib/api";
@@ -42,7 +43,8 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
   const booking = (await findBookingByCode(body.code))!;
   const reason = typeof body.reason === "string" ? body.reason : null;
-  const done = await withdrawPlace(booking.id, what, { kind: "staff", adminId: admin.id, name: admin.name }, reason);
+  // As the member of staff, so the credit note it writes says who gave the money back (lib/acting-staff.ts): their own cash-up counts it.
+  const done = await asStaff(admin, () => withdrawPlace(booking.id, what, { kind: "staff", adminId: admin.id, name: admin.name }, reason));
   if (!done.ok) return refusal(done);
   // Paid online: it goes back now, as when staff cancel a booking.
   const refunds = await refundCancelled([booking.id], { byVenue: true });
