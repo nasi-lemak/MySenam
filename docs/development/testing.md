@@ -964,6 +964,31 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 8 November 2026, commit `f1c2c52` (pilot activation round, release verification on the AI VM: PASS)
+
+`node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
+on a loopback port), of commit `f1c2c5243aadbfd1700c1a50cb1a84746c25b0d4`, tree clean, source digest `b5a530117c358474c4c3c2055398d84c2f0f3d1bff4f4c2798d3d6d9b5229224` (the same
+before and after the run). Started 06:52 UTC (14:52 Malaysian time), 5928 seconds; the disk was 81.8% used (the runner's new preflight warned at 80%). Report:
+`artifacts/verify/f1c2c5243aad-1794120748677.json` (not committed). This verifies the source of the [pilot activation round](../operations/pilot-activation-2026-11-08.md): the cash-up that counts refunds when they are handed back
+([ADR 0075](../architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)) and the disk-space guard. **This is not CI** (no GitHub Actions job was started) **and not production readiness.**
+
+| Step | Result |
+| ---- | ------ |
+| Type-check | Passed |
+| Lint (`--max-warnings 0`) | Passed |
+| Documentation checks | 178 of 178 passed |
+| Suite on PGlite | 6989 passed, 0 failed, 15 skipped (the 15 Postgres-only tests listed in `scripts/lib/expected-skips.mjs`), of 7004 |
+| Suite on PostgreSQL 16 | 7005 passed, 0 failed, **0 skipped**, of 7005; the server committed 2449 transactions during it (Postgres was used) |
+| Production build (`.next` removed first) | Succeeded |
+| Browser end-to-end tests | 12 of 12 passed |
+| Acceptance scenarios (UAT) | 27 files; 95 of 95 passed, none skipped |
+| CI | Not run: GitHub Actions workflows start only by hand |
+| Real services | See below |
+
+It passed on the first complete run of the changed source; nothing was retried. Commits after `f1c2c52` that change only this file leave the verification standing; `node scripts/verify.mjs check` says so.
+
+**Real-service checks of 8 November** (separate from this run, recorded in the [activation record](../operations/pilot-activation-2026-11-08.md)): Amazon SES accepted a synthetic message and the application's sign-up, password-reset and cancellation messages for one approved recipient (acceptance, not delivery: a person must confirm the inbox and the SPF, DKIM and DMARC results); the SES key cannot read the account or the identity; Backblaze B2 and Billplz were not contacted (no bucket configuration, no sandbox credentials). The suites use stand-ins for every provider.
+
 #### 8 November 2026, commit `d844e4a` (final operational hardening, release verification on the AI VM: PASS)
 
 `node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
