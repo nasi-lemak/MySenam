@@ -72,6 +72,72 @@ export async function logSettlement(venueId: number | null, detail: string): Pro
   await logAction({ id: null, name: "MySenam" }, { venueId, action: "payment.settlement_check", detail });
 }
 
+/** How many payments to check a venue has told the owners about one by one in a day; further ones are one daily line (`alertPaymentToCheck`). */
+export const PAYMENT_ALERT_EACH_MAX = 5;
+const PAYMENT_CHECK_KEY = "payment:check:";
+
+/**
+ * A payment has just been put on the list *Payments to check* (`settlement_issue` set; called where that happens, once per payment): the
+ * platform owners are told, once, through `raiseAlert` (their email through the outbox, the alert webhook, *System health*), under the key
+ * `payment:check:<payment id>`. It names the venue and the payment's reference (the gateway's bill id), the issue and the amounts, and where the
+ * list is; never a customer's name, phone or email. The list stays the record: this is a pointer to it.
+ *
+ * Idempotent: a payment that already has its alert, or is no longer waiting, writes nothing, so a repeated or parallel callback, and a
+ * redirect after it, tell once. Marking the payment checked clears the alert (`reviewPayment`); a different payment later is news again.
+ * After `PAYMENT_ALERT_EACH_MAX` standing alerts at a venue, further ones are told as one line a day for that venue
+ * (`payment:check:many:<venue>:<day>`), not one each. Never throws: a payment already recorded must not fail for want of an alert.
+ */
+export async function alertPaymentToCheck(paymentId: number): Promise<void> {
+  try {
+    const db = getDb();
+    const p = (await db
+      .prepare(
+        `SELECT p.id, p.bill_id, p.venue_id, p.settlement_issue AS issue, p.amount::float AS amount, GREATEST(p.refund_due - p.refunded, 0)::float AS owed, v.name AS venue
+           FROM online_payments p JOIN venues v ON v.id = p.venue_id
+          WHERE p.id = ? AND p.purpose NOT IN ('invoice', 'pack') AND p.settlement_issue IS NOT NULL AND p.settlement_reviewed_at IS NULL`
+      )
+      .get(paymentId)) as { id: number; bill_id: string; venue_id: number; issue: SettlementIssue; amount: number; owed: number; venue: string } | undefined;
+    if (!p) return;
+    const key = `${PAYMENT_CHECK_KEY}${p.id}`;
+    if (await db.prepare("SELECT 1 AS yes FROM system_alerts WHERE key = ?").get(key)) return;
+    const { raiseAlert } = await import("./alerts");
+    const { englishOf, said } = await import("./staff-text");
+    const standing = (await db
+      .prepare("SELECT COUNT(*)::int AS n FROM system_alerts a JOIN online_payments q ON a.key = 'payment:check:' || q.id::text WHERE q.venue_id = ?")
+      .get(p.venue_id)) as { n: number };
+    if (standing.n >= PAYMENT_ALERT_EACH_MAX) {
+      const manyKey = `${PAYMENT_CHECK_KEY}many:${p.venue_id}:${new Date().toISOString().slice(0, 10)}`;
+      if (await db.prepare("SELECT 1 AS yes FROM system_alerts WHERE key = ?").get(manyKey)) return;
+      const waiting = (await db
+        .prepare("SELECT COUNT(*)::int AS n FROM online_payments WHERE venue_id = ? AND purpose NOT IN ('invoice', 'pack') AND settlement_issue IS NOT NULL AND settlement_reviewed_at IS NULL")
+        .get(p.venue_id)) as { n: number };
+      const detail = said("srv.vis.pay.many.d", { n: waiting.n, venue: p.venue, each: PAYMENT_ALERT_EACH_MAX });
+      await raiseAlert(manyKey, said("srv.vis.pay.many.s", { venue: p.venue }), englishOf(detail), [detail]);
+      return;
+    }
+    const detail = said("srv.vis.pay.d", {
+      ref: p.bill_id,
+      amount: money(p.amount),
+      venue: p.venue,
+      issue: said(`srv.vis.issue.${p.issue}`),
+      owed: p.owed > 0 ? said("srv.vis.pay.owed", { amount: money(p.owed) }) : said("srv.vis.pay.nothingOwed"),
+    });
+    await raiseAlert(key, said("srv.vis.pay.s", { venue: p.venue }), englishOf(detail), [detail]);
+  } catch (err) {
+    console.error(`[mysenam] could not raise the alert for payment ${paymentId} to check:`, err instanceof Error ? err.message : "unknown error");
+  }
+}
+
+/** A payment was checked: its alert goes, and with the last one waiting at the venue the day's line for it goes too. */
+async function clearPaymentCheckAlert(paymentId: number, venueId: number): Promise<void> {
+  const db = getDb();
+  await db.prepare("DELETE FROM system_alerts WHERE key = ?").run(`${PAYMENT_CHECK_KEY}${paymentId}`);
+  const left = (await db
+    .prepare("SELECT COUNT(*)::int AS n FROM online_payments WHERE venue_id = ? AND purpose NOT IN ('invoice', 'pack') AND settlement_issue IS NOT NULL AND settlement_reviewed_at IS NULL")
+    .get(venueId)) as { n: number };
+  if (left.n === 0) await db.prepare("DELETE FROM system_alerts WHERE key LIKE ?").run(`${PAYMENT_CHECK_KEY}many:${venueId}:%`);
+}
+
 interface PaidRow {
   id: number;
   venue_id: number | null;
@@ -108,8 +174,10 @@ export async function recordReceived(row: PaidRow, a: Assessment, alreadyApplied
           WHERE id = ? AND received_amount IS NULL AND status = 'paid'`
       )
       .run(fromMinor(a.receivedMinor), fromMinor(a.receivedMinor), excess, row.id);
-    if (done.changes === 1)
+    if (done.changes === 1) {
       await logSettlement(row.venue_id, `Payment ${row.id} (${row.bill_id}): ${money(Number(row.amount))} asked, ${money(fromMinor(a.receivedMinor))} received; ${money(excess)} is owed back`);
+      await alertPaymentToCheck(row.id);
+    }
     return;
   }
   if (a.kind === "hold" && alreadyApplied) {
@@ -122,13 +190,15 @@ export async function recordReceived(row: PaidRow, a: Assessment, alreadyApplied
           WHERE id = ? AND received_amount IS NULL AND settlement_issue IS NULL AND status = 'paid'`
       )
       .run(a.receivedMinor === null ? null : fromMinor(a.receivedMinor), issue, row.id);
-    if (done.changes === 1)
+    if (done.changes === 1) {
       await logSettlement(
         row.venue_id,
         `Payment ${row.id} (${row.bill_id}) was applied, and the gateway then reported ${
           a.receivedMinor === null ? "figures that do not match" : `${money(fromMinor(a.receivedMinor))} received against ${money(Number(row.amount))}`
         } (${issue}); it needs a look`
       );
+      await alertPaymentToCheck(row.id);
+    }
   }
 }
 
@@ -281,5 +351,6 @@ export async function reviewPayment(
   if (done.changes !== 1) return { ok: false, error: "That payment is not waiting to be checked.", status: 409 };
   const { logAction } = await import("./activity");
   await logAction(admin, { venueId, action: "payment.settlement_reviewed", detail: `Payment ${paymentId} checked${text ? `: ${text}` : ""}` });
+  await clearPaymentCheckAlert(paymentId, venueId).catch((err) => console.error("[mysenam] could not clear the payment-to-check alert:", err instanceof Error ? err.message : "unknown error"));
   return { ok: true };
 }

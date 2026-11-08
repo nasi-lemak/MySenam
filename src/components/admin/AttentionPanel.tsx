@@ -22,6 +22,7 @@ import type { OverdueInvoice } from "@/lib/accounts";
 import type { EnquiryAttention } from "@/lib/enquiries";
 import type { PeopleAttention as PeopleData } from "@/lib/people-attention";
 import { PeopleAttention, peopleLineCount } from "./PeopleAttention";
+import type { CounterOwedSummary } from "@/lib/counter-owed-visibility";
 
 const REACH_STYLE: Record<UrgentNotice["reach"], string> = {
   unreachable: "bg-red-100 text-red-800",
@@ -86,6 +87,8 @@ export function AttentionPanel() {
     refundsOverdue?: OverdueRefunds[];
     /** Per venue: payments waiting to be checked (lib/payment-settlement.ts). */
     paymentChecks?: { venueId: number; venueName: string; count: number; owed: number; oldest: string }[];
+    /** Per venue: counter payments still owed back to customers, with the oldest age and how many are overdue (lib/counter-owed-visibility.ts, ADR 0076). */
+    counterOwed?: CounterOwedSummary[];
     guardianTasks?: NoticeTask[];
     guardianReviews?: GuardianReviews[];
     classCoachConflicts?: ClassCoachConflict[];
@@ -140,6 +143,7 @@ export function AttentionPanel() {
 
   const overdue = data?.refundsOverdue ?? [];
   const paymentChecks = data?.paymentChecks ?? [];
+  const counterOwed = data?.counterOwed ?? [];
   const tasks = data?.guardianTasks ?? [];
   const reviews = data?.guardianReviews ?? [];
   const guardians = tasks.length + reviews.length > 0;
@@ -167,7 +171,7 @@ export function AttentionPanel() {
   const overdueAccounts = data?.accountsOverdue ?? [];
   const enquiries = data?.enquiries ?? { total: 0, items: [] };
   const peopleLines = peopleLineCount(data?.people);
-  if (!data?.open || !data.recent || (enquiries.total === 0 && peopleLines === 0 && overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && paymentChecks.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
+  if (!data?.open || !data.recent || (enquiries.total === 0 && peopleLines === 0 && overdueAccounts.length === 0 && data.open.length === 0 && data.recent.length === 0 && overdue.length === 0 && paymentChecks.length === 0 && counterOwed.length === 0 && !guardians && coachConflicts.length === 0 && stranded.length === 0 && uncovered.length === 0 && moveRequests.length === 0 && overrideAlerts.length === 0 && flags.length === 0 && sgLines === 0 && compLines === 0)) return null;
 
   /** Postpone a day's fixtures of a tournament or a team league to another day (ADR 0059). */
   async function postpone(d: { kind: CompetitionFixture["kind"]; ownerId: number; date: string }) {
@@ -459,6 +463,21 @@ export function AttentionPanel() {
           })}
         </div>
       )}
+      {counterOwed.length > 0 && (
+        <div
+          className={`mb-3 rounded-lg border bg-white px-3 py-2 text-sm ${counterOwed.some((v) => v.overdue > 0) ? "border-red-200 text-red-800" : "border-amber-200 text-amber-900"}`}
+          data-testid="counter-owed"
+        >
+          <strong>{t("vis.att.counter")}</strong>{" "}
+          {t("vis.att.counterHelp", {
+            list: counterOwed
+              .map((v) =>
+                t.plural("vis.att.counterVenue", v.count, { venue: v.venueName, count: v.count, amount: money(v.amount), days: v.oldestDays, overdue: v.overdue, limit: v.overdueAfterDays })
+              )
+              .join("; "),
+          })}
+        </div>
+      )}
       {overdue.length > 0 && (
         <div className="mb-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm text-red-800">
           <strong>{t("att.refundsOverdue")}</strong>{" "}
@@ -471,7 +490,7 @@ export function AttentionPanel() {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-bold text-amber-900">
-          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || paymentChecks.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 || overrideAlerts.length > 0 || flags.length > 0 ? t("att.title") : t("att.nothing")}
+          {data.open.length > 0 ? t("att.titleCount", { n: data.open.length }) : overdue.length > 0 || paymentChecks.length > 0 || counterOwed.length > 0 || guardians || coachConflicts.length > 0 || stranded.length > 0 || uncovered.length > 0 || moveRequests.length > 0 || overrideAlerts.length > 0 || flags.length > 0 ? t("att.title") : t("att.nothing")}
         </h2>
         {data.recent.length > 0 && (
           <button onClick={() => setShowRecent(!showRecent)} className="text-xs text-amber-800 underline">

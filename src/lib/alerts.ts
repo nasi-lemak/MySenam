@@ -196,3 +196,55 @@ export async function schedulerAlive(): Promise<boolean> {
     .get(HEARTBEAT_KEY)) as { fresh: boolean } | undefined;
   return row?.fresh === true;
 }
+
+/** A heartbeat older than this is stale (the short unit ticks each minute and stamps first; a slow pass can overrun a few). */
+export const HEARTBEAT_STALE_MINUTES = 5;
+/** A process this young may not have ticked yet (its first tick is at 15 seconds): "starting", said as such, never "healthy". */
+export const HEARTBEAT_START_GRACE_MINUTES = 2;
+
+/**
+ * How the scheduler looks from the owner's dashboard (`GET /api/admin/system`, `scheduler.heartbeat`). Stricter than `schedulerAlive`, which
+ * `/api/health` answers from and which stays as it is (an uptime monitor depends on it): a missing or old stamp is never "healthy".
+ *
+ * - `healthy`: stamped within `HEARTBEAT_STALE_MINUTES`;
+ * - `stale`: stamped, longer ago than that;
+ * - `never`: nothing has ever been stamped (and this process is past its first minutes);
+ * - `starting`: no fresh stamp, but this process started under `HEARTBEAT_START_GRACE_MINUTES` ago, so the first tick may not have run;
+ * - `off`: the scheduler is switched off in this process (the stamp, if any, is shown as it is).
+ *
+ * The stamp is written at the start of each short pass, so it says the loop is running, not that every job in the pass worked: a job
+ * that failed is its own alert (`scheduler:*` keys), and the newest of those still outstanding is `lastFailure`. Read only.
+ */
+export interface SchedulerHeartbeat {
+  state: "healthy" | "stale" | "never" | "starting" | "off";
+  /** When the scheduler last stamped, ISO UTC; null if never. */
+  lastAt: string | null;
+  /** Seconds since, by this server's clock; null if never. */
+  ageSeconds: number | null;
+  staleAfterMinutes: number;
+  /** The newest outstanding `scheduler:*` alert, if any. */
+  lastFailure: { key: string; subject: string; subjectPhrase: StaffText | null; at: string; count: number } | null;
+}
+
+export async function schedulerHeartbeat(enabled: boolean, now: number = Date.now()): Promise<SchedulerHeartbeat> {
+  const db = getDb();
+  const row = (await db.prepare("SELECT value FROM settings WHERE key = ?").get(HEARTBEAT_KEY)) as { value: string } | undefined;
+  const stamped = row?.value ? Date.parse(`${String(row.value).replace(" ", "T")}Z`) : NaN;
+  const lastAt = Number.isFinite(stamped) ? stamped : null;
+  const ageSeconds = lastAt === null ? null : Math.max(0, Math.round((now - lastAt) / 1000));
+  const failure = (await db
+    .prepare("SELECT key, subject, said, count, last_at FROM system_alerts WHERE key LIKE 'scheduler:%' ORDER BY last_at DESC LIMIT 1")
+    .get()) as { key: string; subject: string; said: string | null; count: number; last_at: string } | undefined;
+  const fresh = ageSeconds !== null && ageSeconds <= HEARTBEAT_STALE_MINUTES * 60;
+  const young = now - STARTED < HEARTBEAT_START_GRACE_MINUTES * 60_000;
+  const state: SchedulerHeartbeat["state"] = !enabled ? "off" : fresh ? "healthy" : young ? "starting" : lastAt === null ? "never" : "stale";
+  return {
+    state,
+    lastAt: lastAt === null ? null : new Date(lastAt).toISOString(),
+    ageSeconds,
+    staleAfterMinutes: HEARTBEAT_STALE_MINUTES,
+    lastFailure: failure
+      ? { key: failure.key, subject: failure.subject, subjectPhrase: phrasesOf(failure.said).subjectPhrase, at: new Date(`${String(failure.last_at).replace(" ", "T")}Z`).toISOString(), count: failure.count }
+      : null,
+  };
+}

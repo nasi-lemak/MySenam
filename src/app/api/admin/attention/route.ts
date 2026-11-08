@@ -5,6 +5,7 @@ import { closeNoticeTask, guardianReviews, openNoticeTasks } from "@/lib/contact
 import { markTold, noticeById, openNotices, recentlyClosed } from "@/lib/urgent";
 import { overdueRefunds } from "@/lib/payments";
 import { paymentChecksSummary } from "@/lib/payment-settlement";
+import { counterOwedSummary } from "@/lib/counter-owed-visibility";
 import { classCoachConflicts } from "@/lib/class-coaches";
 import { uncoveredSessions } from "@/lib/rosters";
 import { listMoveRequests } from "@/lib/class-move-requests";
@@ -77,6 +78,8 @@ export async function GET(req: NextRequest) {
     refundsOverdue: await overdueRefunds(admin.venueIds),
     // Payments received and not applied, an excess owed back, a payment after a hold was let go: waiting for a look (ADR 0065).
     paymentChecks: await paymentChecksSummary(admin.venueIds),
+    // Counter payments still owed back to customers, per venue: how many, in all, the oldest age and how many are past REFUND_OVERDUE_DAYS; no names (lib/counter-owed-visibility.ts, ADR 0076).
+    counterOwed: await counterOwedSummary(admin.venueIds, admin.role),
     guardianTasks: await openNoticeTasks(admin.venueIds),
     guardianReviews: admin.role === "desk" ? [] : await guardianReviews(admin.venueIds),
     // Upcoming class sessions whose coach cannot teach them as set (lib/class-coaches.ts): never silently dropped.

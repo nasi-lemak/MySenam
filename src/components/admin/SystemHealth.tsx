@@ -2,17 +2,27 @@
 
 import { readJson } from "@/lib/read-response";
 import { useEffect, useState } from "react";
-import type { SystemAlert } from "@/lib/alerts";
+import type { SchedulerHeartbeat, SystemAlert } from "@/lib/alerts";
+import type { StaffT } from "@/lib/staff-i18n";
 import { useStaffClock, useStaffT } from "./StaffLanguage";
 
+/** A length of time since, as a staff member reads it: the largest whole unit. */
+function ago(t: StaffT, seconds: number): string {
+  if (seconds < 60) return t("vis.hb.ago.s", { n: seconds });
+  if (seconds < 90 * 60) return t("vis.hb.ago.m", { n: Math.round(seconds / 60) });
+  if (seconds < 48 * 3600) return t("vis.hb.ago.h", { n: Math.round(seconds / 3600) });
+  return t("vis.hb.ago.d", { n: Math.round(seconds / 86400) });
+}
+
 /**
- * What has broken lately, for the platform owner: shown only when something
- * has, or the scheduler has stopped. The same news also went by email.
+ * What has broken lately, for the platform owner, and one read-only line on the scheduler (lib/alerts.ts `schedulerHeartbeat`): healthy, stale,
+ * never stamped, just started, or switched off. The line is always there, so a scheduler that has gone quiet is a red line and not an absence.
+ * The same news also went by email.
  */
 export function SystemHealth() {
   const t = useStaffT();
   const clock = useStaffClock();
-  const [state, setState] = useState<{ alerts: SystemAlert[]; scheduler: { enabled: boolean; alive: boolean } } | null>(null);
+  const [state, setState] = useState<{ alerts: SystemAlert[]; scheduler: { enabled: boolean; alive: boolean; heartbeat?: SchedulerHeartbeat } } | null>(null);
 
   useEffect(() => {
     void fetch("/api/admin/system", { cache: "no-store" })
@@ -23,7 +33,8 @@ export function SystemHealth() {
 
   if (!state) return null;
   const stalled = state.scheduler.enabled && !state.scheduler.alive;
-  if (state.alerts.length === 0 && !stalled) return null;
+  const hb = state.scheduler.heartbeat;
+  const quiet = !!hb && hb.state !== "healthy" && hb.state !== "off";
 
   async function clear(key: string) {
     const res = await fetch("/api/admin/system", {
@@ -37,9 +48,29 @@ export function SystemHealth() {
     }
   }
 
+  const heartbeatLine = hb && (
+    <p className={`mt-1 ${hb.state === "healthy" ? "text-emerald-800" : hb.state === "starting" ? "text-amber-800" : "font-semibold"}`} data-testid="scheduler-heartbeat" data-state={hb.state}>
+      {t("vis.hb.label")}:{" "}
+      {hb.state === "healthy" || hb.state === "stale"
+        ? t(hb.state === "healthy" ? "vis.hb.healthy" : "vis.hb.stale", { ago: ago(t, hb.ageSeconds ?? 0), when: clock.when(hb.lastAt ?? "") })
+        : t(`vis.hb.${hb.state}`)}
+      {hb.lastFailure && (
+        <span className="block font-normal">
+          {t("vis.hb.failure", { what: t.say(hb.lastFailure.subjectPhrase, hb.lastFailure.subject), when: clock.when(hb.lastFailure.at), n: hb.lastFailure.count })}
+        </span>
+      )}
+      {(quiet || state.alerts.length > 0 || !!hb.lastFailure) && <span className="block text-xs font-normal">{t("vis.hb.where")}</span>}
+    </p>
+  );
+
+  // Nothing wrong and the scheduler healthy (or off by choice): a slim line, not a warning box.
+  if (state.alerts.length === 0 && !stalled && !quiet && !hb?.lastFailure)
+    return hb ? <section className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm">{heartbeatLine}</section> : null;
+
   return (
     <section className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
       <h2 className="font-bold">⚠ {t("sys.title")}</h2>
+      {heartbeatLine}
       {stalled && <p className="mt-1">{t("sys.stalled")}</p>}
       <ul className="mt-2 space-y-2">
         {state.alerts.map((a) => (

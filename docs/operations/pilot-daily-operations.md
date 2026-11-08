@@ -35,17 +35,19 @@ The first real run should correct this document.
 | **Refunds owed**, **Refunds on their way**, **Payments to check**, **Disputed payments**, **Refund workload** | *Venues & staff*, under **Online payment** | Venue staff (the front desk's view is smaller) |
 | **Messages to customers** (*Sent*, *Waiting*, *Retrying*, *Given up*, *Try again*; **Platform emails** for the owner) | *Venues & staff* | Venue staff; platform emails the owner |
 | **Backups** (state, each snapshot *Whole* or not, the last off-site copy, *Back up now*) | *Venues & staff* | Owner only |
-| **System health** (outstanding alerts, *Dealt with*; a line when the scheduler has stalled) | Top of the admin dashboard | Owner only; **shown only while something is wrong** |
+| **System health** (the **Scheduler** line: healthy, stale, no heartbeat yet, starting or off, with the time since; outstanding alerts, *Dealt with*) | Top of the admin dashboard | Owner only; the Scheduler line is always there, the red box only while something is wrong |
 | **Errors** | Top of the admin dashboard | Owner only |
 | **Booking integrity check** | Admin dashboard | Managers (their venues) and the owner (all); not the front desk |
 | **Cash-up** (counts, variance, *Print the cash-up*) | *Credit & passes* tab | Front desk its own shift; manager anybody's |
 | Period report, including **Held for customers, in ringgit**, unspent pass hours and lapsing memberships; **Staff activity** | *Reports* tab | Managers and the owner |
 | **Reviews** | *Venues & staff* | Venue staff |
 
-Two things the operator will look for and **will not find as a screen**: the scheduler's heartbeat and the email health
-numbers are in the owner's system answer (`GET /api/admin/system`, raw data, not a page); the screen shows only a red line
-under **System health** when the scheduler has not run for over 10 minutes. **Absence of that line is not proof that the
-app is healthy**: an offline app cannot report itself ([monitoring](monitoring.md#external-monitoring-for-the-pilot)).
+One thing the operator will look for and **will not find as a screen**: the email health numbers are in the owner's system
+answer (`GET /api/admin/system`, raw data, not a page). The scheduler is a line under **System health**: **Scheduler: healthy**
+with the time since it last ran; **STALE** (more than 5 minutes); **NO HEARTBEAT YET** (never reported in); **starting** (the app
+restarted under 2 minutes ago; the only grace); or **switched off on this server**. **Only healthy is good.** The line is seen only
+while somebody has the dashboard open: an offline app cannot report itself, so it is not proof that the app is healthy
+([monitoring](monitoring.md#external-monitoring-for-the-pilot)).
 
 ## Every day
 
@@ -58,7 +60,9 @@ Do this at the start of the day and again at the end (the one-page sheet below).
 2. **Payments requiring review.** *Venues & staff → Online payment → Payments to check*, and the red line **Payments to
    check** in **Needs attention**. Each is money that came in and was not applied as the customer paid for it. Open each,
    check it against the venue's gateway dashboard, and press **Mark checked** with a note. Anything with "owed back" is
-   also under **Refunds owed**. With online payment off (the plan until Billplz's sandbox check passes) this list should
+   also under **Refunds owed**. The owner is also emailed once per such payment (subject *A payment at {venue} needs
+   checking*: the venue and the payment's bill id, no customer detail; after five standing at one venue, one line a day), and
+   it is cleared when you press **Mark checked**. The list is the record. With online payment off (the plan until Billplz's sandbox check passes) this list should
    be empty; if it is not, that is an incident ([A customer pays but gets no booking](#a-customer-pays-but-gets-no-booking)).
 3. **Refunds owed.** *Online payment → Refunds owed*: each shows how many days it has been owed and the date promised to the
    customer; **Overdue** is in red, and **Needs attention** repeats it as **Refunds overdue**. Refund each in the
@@ -69,8 +73,11 @@ Do this at the start of the day and again at the end (the one-page sheet below).
    whatever day it was for. It lists the customer, booking code, amount, how it was paid, why, whether the customer was
    told, and the credit note's number. **A credit note is not the refund**: nothing is paid until a named staff member
    presses **Handed back** (or **Give as credit**). The front desk can settle a payment taken today; an older one is a
-   manager's. The list does not email anyone and is **not** in **Needs attention**, so it is only seen by opening it. Where
-   the customer has no email, ring them: the panel says so.
+   manager's. **Needs attention** shows a red line **Owed back at the counter** (amber if none is old yet): per venue how many
+   wait, the sum, the oldest in days and how many are past 2 days; the venue's managers are emailed one message a day, after
+   09:00 venue time, while anything is owed. **Neither settles anything**: a row leaves the list only when a named staff
+   member presses **Handed back** or **Give as credit**. The owner who is not also a manager sees the line but is not emailed.
+   Where the customer has no email, ring them: the panel says so.
 5. **Failed customer notifications.** **Needs attention**: each customer the venue cancelled or moved who has not yet seen it,
    with the way they were reached. Red lines (*No email or WhatsApp: call them*, *Message failed: call them*) need a call;
    mark them **I have told them** once you have. Then *Venues & staff → Messages to customers*: the counts of *Retrying* and
@@ -86,9 +93,10 @@ Do this at the start of the day and again at the end (the one-page sheet below).
    with a strike, coaches with no email); **private hire enquiries nobody has answered**; class move requests waiting for a
    manager; sessions with too few qualified people rostered; **overdue company accounts**; **competitions and messages that
    need you**. A block with nothing in it does not appear.
-8. **Scheduler heartbeat.** **System health** (owner): if it says the scheduler has not run for over 10 minutes, there are
-   **no backups, no messages and no released holds**: treat it as [the app is unavailable](#the-application-is-unavailable)
-   and call the technical contact. If the external uptime monitor is configured, it reports this as well
+8. **Scheduler heartbeat.** **System health → Scheduler** (owner): anything but **healthy** (STALE, NO HEARTBEAT YET, or
+   *starting* for more than a couple of minutes) means there may be **no backups, no messages and no released holds**: treat
+   it as [the app is unavailable](#the-application-is-unavailable) and call the technical contact. The line also names the last
+   scheduler failure still outstanding. If the external uptime monitor is configured, it reports this as well
    (`/api/health` answers an error when the scheduler has not ticked for ten minutes).
 9. **Backup status.** *Venues & staff → Backups* (owner): the state at the top
    ([backup health](backups.md#backup-health)): **Backups: active** is the good state. Anything else, or a red line (the
