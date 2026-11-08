@@ -167,7 +167,7 @@ the wait (`waitedForMidnightSeconds`); run by hand, start the scenarios outside 
 The build and the type-check need a 4 GB Node heap; the runner sets
 `--max-old-space-size=4096` for every step (Node's default of about 2 GB ran
 out on 6 November 2026), and the machine needs about 6 GB of memory and 3 GB of
-free disk (the runner is BLOCKED without them).
+free disk (the runner is BLOCKED without them). The preflight also reads how full the disk is: it warns at 80% and, at 95% or more, notes the build, the browser tests and the acceptance scenarios BLOCKED with the reason and ends BLOCKED (the same `MYSENAM_DISK_WARN_PERCENT` and `MYSENAM_DISK_BLOCK_PERCENT` the application's disk alert reads; a full disk once crashed a restore test on 7 November 2026). The AI VM's writable disk is a fixed allowance: old `artifacts/uat/` folders and merged agent worktrees are removed by hand, never with a blanket prune.
 
 Postgres is `TEST_DATABASE_URL`, `--pg <url>`, or else the throwaway container
 described above.

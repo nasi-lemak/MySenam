@@ -140,3 +140,7 @@ Not checkable without real email: delivery and inbox placement; that SES click t
 off (it would rewrite the link); behaviour in an SES outage against real error codes;
 bounces and complaints; the Malay, Chinese and Tamil wording in real clients; WhatsApp and
 SMS delivery of phone codes; Google sign-in against live Google.
+
+## Update, 8 November 2026
+
+The [pilot activation record](pilot-activation-2026-11-08.md) records what was then checked against the real services: SES accepted test, sign-up, reset and cancellation messages for an approved recipient but **inbox delivery and header results are not yet confirmed by a person**; B2 and Billplz stayed blocked for want of credentials and configuration; the cash-up now counts refunds when they are handed back; a disk-space guard exists. The matrix above is otherwise unchanged: *Email delivery*, *Backups and restore*, *Billplz checkout* and *Privacy and legal documents* stay **Blocked pending verification**.
