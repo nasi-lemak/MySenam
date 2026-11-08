@@ -145,6 +145,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0073 Security mail is its own class with an allowance of its own; a production marketplace with email that cannot deliver refuses sign-up and forgotten-password requests, honestly](architecture/decisions/0073-security-mail-is-its-own-class-and-a-production-marketplace-needs-email-that-can-deliver.md)
 [0065 A payment is settled for the amount the gateway took and never into a lapsed hold; stored value and e-invoicing wait for the adviser](architecture/decisions/0065-a-payment-is-settled-for-the-amount-the-gateway-took-and-never-into-a-lapsed-hold.md)
 [0074 A customer's cancellation of a booking paid at the counter is an obligation to hand the money back; a credit note is the record of the cancellation, not the refund](architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md)
+[0075 The till is compared with the cash received and the cash actually handed back that day; a credit note is the record of a cancellation, not a payout; an unpaid refund is shown as still owed](architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)
 
 ## Integrations
 

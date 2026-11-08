@@ -1,7 +1,7 @@
 import type { CashUp, CashUpPart } from "@/lib/cash-up";
-import { money } from "@/lib/region";
+import { money, roundMoney } from "@/lib/region";
 import type { StaffT } from "@/lib/staff-i18n";
-import { CATEGORY_PHRASES, methodText } from "./cash-up-words";
+import { CATEGORY_PHRASES, methodText, OWED_CAUSE_PHRASES } from "./cash-up-words";
 
 /**
  * A day's cash-up as a sheet (lib/cash-up.ts): what was taken and given
@@ -15,6 +15,7 @@ export function CashUpSheet({ data, t, time }: { data: CashUp; t: StaffT; time: 
     <div className="space-y-4">
       <Part part={data} t={t} time={time} empty />
       <TillsAndDeposits data={data} t={t} time={time} />
+      <Refunds data={data} t={t} time={time} />
       {(data.test?.entries.length ?? 0) > 0 && (
         <section className="space-y-3 rounded-lg border border-slate-300 bg-slate-50 p-3" aria-label={t("r10a.cash.testTitle")}>
           <h4 className="font-semibold">{t("r10a.cash.testTitle")}</h4>
@@ -123,6 +124,7 @@ function TillsAndDeposits({ data, t, time }: { data: CashUp; t: StaffT; time: (a
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
                 <th className="py-1.5 pr-3 font-medium">{t("p8b.cash.method")}</th>
                 <th className="py-1.5 pr-3 text-right font-medium">{t("fx4.cash.exp.journal")}</th>
+                <th className="py-1.5 pr-3 text-right font-medium">{t("cu75.exp.refunds")}</th>
                 <th className="py-1.5 pr-3 text-right font-medium">{t("fx4.cash.exp.deposits")}</th>
                 <th className="py-1.5 pr-3 text-right font-medium">{t("fx4.cash.exp.expected")}</th>
                 <th className="py-1.5 pr-3 text-right font-medium">{t("fx4.cash.exp.counted")}</th>
@@ -136,6 +138,7 @@ function TillsAndDeposits({ data, t, time }: { data: CashUp; t: StaffT; time: (a
                   <tr key={e.method} className="border-b border-slate-100">
                     <td className="py-1.5 pr-3">{methodText(t, e.method)}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums">{money(e.journalNet)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{money(roundMoney((e.refundNotes ?? 0) - (e.handedBack ?? 0)))}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums">{money(e.depositsNet)}</td>
                     <td className="py-1.5 pr-3 text-right font-semibold tabular-nums">{money(e.expected)}</td>
                     <td className="py-1.5 pr-3 text-right tabular-nums">{c ? money(c.counted) : "—"}</td>
@@ -215,5 +218,92 @@ function TillsAndDeposits({ data, t, time }: { data: CashUp; t: StaffT; time: (a
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Refunds, kept apart from the credit notes above (ADR 0075): what was handed back on the day, by the method actually used, and what is
+ * still owed back at its end. A credit note is the record of a cancellation; the till goes down by what was handed over, on that day.
+ */
+function Refunds({ data, t, time }: { data: CashUp; t: StaffT; time: (at: string) => string }) {
+  const r = data.refunds;
+  if (!r || (r.handed.length === 0 && r.owed.length === 0)) return null;
+  const kind = (k: "booking" | "entry" | "pass" | "membership") => t(`cu75.kind.${k}`);
+  return (
+    <section className="space-y-3" aria-label={t("cu75.title")} data-testid="cash-up-refunds">
+      <h4 className="font-semibold">{t("cu75.title")}</h4>
+      <p className="text-xs text-slate-600">{t("cu75.note")}</p>
+      <div>
+        <h5 className="text-sm font-medium">{t("cu75.handedTitle")}</h5>
+        {r.handed.length === 0 ? (
+          <p className="mt-1 text-sm text-slate-500">{t("cu75.handedNone")}</p>
+        ) : (
+          <table className="mt-1 w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 text-left uppercase tracking-wide text-slate-500">
+                <th className="py-1 pr-2 font-medium">{t("p8b.cash.time")}</th>
+                <th className="py-1 pr-2 font-medium">{t("p8b.cash.what")}</th>
+                <th className="py-1 pr-2 font-medium">{t("cu75.col.handedBy")}</th>
+                <th className="py-1 pr-2 font-medium">{t("cu75.col.paidWith")}</th>
+                <th className="py-1 pr-2 font-medium">{t("p8b.cash.by")}</th>
+                <th className="py-1 text-right font-medium">{t("c.amount")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.handed.map((h, i) => (
+                <tr key={`${h.reference}-${i}`} className="border-b border-slate-100">
+                  <td className="whitespace-nowrap py-1 pr-2 text-slate-500">{time(h.at)}</td>
+                  <td className="py-1 pr-2">
+                    {kind(h.kind)} <span className="font-mono">{h.reference}</span>
+                    {h.creditNote && <span className="ml-1 text-slate-500">{h.creditNote}</span>}
+                    {h.countedAs === "credit note" && <span className="block text-slate-500">{t("cu75.counted")}</span>}
+                  </td>
+                  <td className="py-1 pr-2">{methodText(t, h.method)}</td>
+                  <td className="py-1 pr-2">{methodText(t, h.paidWith)}</td>
+                  <td className="py-1 pr-2 text-slate-500">{h.staffName ?? "—"}</td>
+                  <td className="whitespace-nowrap py-1 text-right tabular-nums">−{money(h.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <div>
+        <h5 className="text-sm font-medium">{t("cu75.owedTitle")}</h5>
+        <p className="text-xs text-slate-600">{t("cu75.owedHelp")}</p>
+        {r.owed.length === 0 ? (
+          <p className="mt-1 text-sm text-slate-500">{t("cu75.owedNone")}</p>
+        ) : (
+          <>
+            <table className="mt-1 w-full border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left uppercase tracking-wide text-slate-500">
+                  <th className="py-1 pr-2 font-medium">{t("p8b.cash.what")}</th>
+                  <th className="py-1 pr-2 font-medium">{t("p8b.cash.method")}</th>
+                  <th className="py-1 pr-2 font-medium">{t("cu75.col.why")}</th>
+                  <th className="py-1 pr-2 font-medium">{t("cu75.col.since")}</th>
+                  <th className="py-1 text-right font-medium">{t("c.amount")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.owed.map((o, i) => (
+                  <tr key={`${o.reference}-${i}`} className="border-b border-slate-100">
+                    <td className="py-1 pr-2">
+                      {kind(o.kind)} <span className="font-mono">{o.reference}</span>
+                      {o.creditNote && <span className="ml-1 text-slate-500">{o.creditNote}</span>}
+                    </td>
+                    <td className="py-1 pr-2">{methodText(t, o.method)}</td>
+                    <td className="py-1 pr-2">{OWED_CAUSE_PHRASES[o.cause] ? t(OWED_CAUSE_PHRASES[o.cause]) : o.cause}</td>
+                    <td className="whitespace-nowrap py-1 pr-2 text-slate-500">{time(o.since)}</td>
+                    <td className="whitespace-nowrap py-1 text-right tabular-nums">{money(o.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-1 text-sm font-medium">{t("cu75.owedTotal", { amount: money(r.owedTotal) })}</p>
+          </>
+        )}
+      </div>
+    </section>
   );
 }

@@ -35,6 +35,11 @@ import { venueZoneOf } from "./zones";
  * the expected amount in each till is the journal's net plus the deposits taken
  * less every deposit let go of (given back and kept), counted once.
  *
+ * A refund is two events (ADR 0075): the cancellation, whose credit note is in the journal on the day it is written, and the cash handed back, which
+ * is a payout on the day it is. The credit note of a refund with a payout (or of a customer's own cancellation) is the record, not cash leaving a
+ * till, so it is put back in the expected amount and the payout (by the day and method it was handed over) is taken out; refunds not yet handed over
+ * are listed apart as still owed (`refunds`). The journal's own figures (`byMethod`, `totals`, `entries`) are untouched.
+ *
  * The expected amounts are what a cashier counts against: `counts` are what was
  * counted at the end of the shift, with the variance, kept as they were counted
  * (cash_up_counts, migration 0308; `saveCashUpCount`).
@@ -114,9 +119,68 @@ export interface CashUpExpected {
   method: CounterMethod;
   /** The journal's net for the method: takings less what was given back. */
   journalNet: number;
+  /**
+   * Credit notes the journal gave back on the day that record a refund owed or handed back (positive): they are the record, not cash leaving
+   * the till, so they are put back here, and what was actually handed over is taken out (`handedBack`), on the day it was (ADR 0075).
+   */
+  refundNotes: number;
+  /** Money handed back across the counter on the day by this method (positive), from the payouts: what actually left the till. */
+  handedBack: number;
   /** Deposits taken less every deposit let go of (given back and kept; the part kept is in the journal as a sale). */
   depositsNet: number;
+  /** `journalNet + refundNotes - handedBack + depositsNet`. */
   expected: number;
+}
+
+/** A refund handed back across the counter (or at the till by another method) on the day. */
+export interface CashUpHandedBack {
+  at: string;
+  kind: "booking" | "entry" | "pass" | "membership";
+  /** The booking's code, the pass's or membership's code, or the tournament's name: what the money went back on. */
+  reference: string;
+  /** The credit note it was paid out on, where the payout names one. */
+  creditNote: string | null;
+  amount: number;
+  /** How it was actually handed over (an agreed alternative to the way it was paid is the one recorded), or null where no method was recorded. */
+  method: string | null;
+  /** How the customer had paid. */
+  paidWith: string | null;
+  /**
+   * `payout`: taken out of the till on this day, by this method, and its credit note is not (see `refundNotes`). `credit note`: a payout
+   * from before payouts named their credit note: counted by the credit note, on its day, as it always was, and not taken out a second time.
+   */
+  countedAs: "payout" | "credit note";
+  staffName: string | null;
+}
+
+/** A refund owed back to a customer and not yet handed over at the end of the day: not money gone from any till. */
+export interface CashUpStillOwed {
+  kind: "booking" | "entry" | "pass" | "membership";
+  reference: string;
+  amount: number;
+  /** How the customer paid, which is how it is owed back unless they agree to another. */
+  method: string | null;
+  /** Why (the cause as the list of money owed back records it). */
+  cause: string;
+  /** True where the customer's own cancellation wrote it (its credit note was written then). */
+  customerCancelled: boolean;
+  creditNote: string | null;
+  /** Since when (UTC, ISO). */
+  since: string;
+}
+
+/**
+ * Refunds on the day, kept apart (ADR 0075): what was handed back, by the method it actually went back by, and what is still owed. The
+ * credit note stays in the journal as the record; this is the cash side.
+ */
+export interface CashUpRefunds {
+  handed: CashUpHandedBack[];
+  /** Money taken out of the tills by payouts (`countedAs: "payout"`), by method actually used. */
+  handedByMethod: { method: string | null; amount: number; count: number }[];
+  /** Owed back at the end of the day and not yet handed over, venue-wide (an obligation is not a person's till). */
+  owed: CashUpStillOwed[];
+  owedByMethod: { method: string | null; amount: number; count: number }[];
+  owedTotal: number;
 }
 
 /** A shift's count of one till, kept as it was counted. */
@@ -145,8 +209,10 @@ export interface CashUp extends CashUpPart {
   staff: { id: number; name: string }[];
   /** Hire deposits held, given back and kept that day. */
   deposits: CashUpDeposits;
-  /** What each till should hold: the journal's net by method plus the deposits' part. Only methods with something in them. */
+  /** What each till should hold: money received less refunds actually handed over, by method, plus the deposits' part. Only methods with something in them. */
   expected: CashUpExpected[];
+  /** Refunds handed back that day and refunds still owed at its end (ADR 0075). */
+  refunds: CashUpRefunds;
   /** The latest count of each till for this scope (everybody's, or this member of staff's), if any. */
   counts: CashUpCount[];
 }
@@ -196,9 +262,11 @@ export async function cashUp(venueId: number, date: string, staffId: number | nu
   for (const r of all) if (r.staffId !== null) staff.set(r.staffId, r.staffName ?? "");
   const mine = (rows: Row[]) =>
     (staffId === null ? rows : rows.filter((r) => r.staffId === staffId)).sort((a, b) => a.at.localeCompare(b.at) || a.number.localeCompare(b.number));
-  const real = summarise(mine(all.filter((r) => !r.test)));
+  const realRows = mine(all.filter((r) => !r.test));
+  const real = summarise(realRows);
   const deposits = await depositsOn(venueId, date, staffId);
   for (const e of deposits.entries) if (e.staffId > 0 && e.staffName) staff.set(e.staffId, e.staffName);
+  const refunds = await refundsOn(venueId, date, staffId, realRows);
   return {
     venueId,
     date,
@@ -207,24 +275,189 @@ export async function cashUp(venueId: number, date: string, staffId: number | nu
     test: summarise(mine(all.filter((r) => r.test))),
     staff: [...staff.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
     deposits: { byMethod: deposits.byMethod, entries: deposits.entries.map((e) => ({ at: e.at, bookingCode: e.bookingCode, customer: e.customer, event: e.event, method: e.method, amount: e.amount, kept: e.kept, staffName: e.staffName })), held: deposits.held, heldTotal: deposits.heldTotal },
-    expected: expectedFor(real, deposits.byMethod),
+    expected: expectedFor(real, deposits.byMethod, refunds),
+    refunds: refunds.report,
     counts: await countsFor(venueId, date, staffId),
   };
 }
 
 const MONEY_METHODS: readonly CounterMethod[] = COUNTER_METHODS;
 
-/** What each till should hold from the day: the journal's net plus the deposits' part (taken less let go of, kept included once). */
-function expectedFor(part: CashUpPart, byMethod: CashUpDeposits["byMethod"]): CashUpExpected[] {
+/**
+ * What each till should hold from the day: the money received less the money actually handed back, by method, on the day each happened,
+ * plus the deposits' part (taken less let go of, kept included once). The journal's credit notes that record a refund owed or handed back are
+ * not cash leaving the till (`refunds.notes`, put back); the payouts are (`refunds.out`). Every other credit note (a sale voided, a price
+ * adjusted, a refund with no payout list behind it) is still the journal's.
+ */
+function expectedFor(part: CashUpPart, byMethod: CashUpDeposits["byMethod"], refunds: { notes: Map<string, number>; out: Map<string, number> }): CashUpExpected[] {
   const out: CashUpExpected[] = [];
   for (const method of MONEY_METHODS) {
     const j = part.byMethod.find((m) => m.method === method)?.net ?? 0;
     const d = byMethod.find((m) => m.method === method);
     const depositsNet = d ? roundMoney(d.taken - d.givenBack - d.kept) : 0;
-    if (!part.byMethod.some((m) => m.method === method) && !d) continue;
-    out.push({ method, journalNet: roundMoney(j), depositsNet, expected: roundMoney(j + depositsNet) });
+    const refundNotes = roundMoney(refunds.notes.get(method) ?? 0);
+    const handedBack = roundMoney(refunds.out.get(method) ?? 0);
+    if (!part.byMethod.some((m) => m.method === method) && !d && refundNotes === 0 && handedBack === 0) continue;
+    out.push({ method, journalNet: roundMoney(j), refundNotes, handedBack, depositsNet, expected: roundMoney(j + refundNotes - handedBack + depositsNet) });
   }
   return out;
+}
+
+/** A stored time as an ISO string, whichever way the driver hands it back. */
+const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : /^\d{4}-\d{2}-\d{2} \d/.test(String(v)) ? `${String(v).replace(" ", "T")}Z` : String(v));
+const dayIn = (column: string) => `to_char(${column} AT TIME ZONE ?, 'YYYY-MM-DD')`;
+const CUSTOMER_NOTE_SOURCE = `CASE WHEN o.cause = 'customer_cancelled' THEN 'booking:' || o.booking_id WHEN o.cause = 'place_withdrawn' THEN 'booking:' || o.booking_id || ':place:' || o.withdrawal_id END`;
+
+function byMethodOf(rows: { method: string | null; amount: number }[]): { method: string | null; amount: number; count: number }[] {
+  const m = new Map<string | null, { method: string | null; amount: number; count: number }>();
+  for (const r of rows) {
+    const e = m.get(r.method) ?? { method: r.method, amount: 0, count: 0 };
+    e.amount += r.amount;
+    e.count++;
+    m.set(r.method, e);
+  }
+  const rank = (x: string | null) => (x === null ? METHOD_ORDER.length + 1 : METHOD_ORDER.includes(x) ? METHOD_ORDER.indexOf(x) : METHOD_ORDER.length);
+  return [...m.values()].map((e) => ({ ...e, amount: roundMoney(e.amount) })).sort((a, b) => rank(a.method) - rank(b.method));
+}
+
+/**
+ * The cash side of refunds on one day (ADR 0075), from the lists staff settle from, never a second ledger:
+ *
+ * - **Handed back that day**: the payouts (`counter_payouts`, and the settled rows of `counter_fee_refunds_owed`) dated by when they were handed
+ *   over on the venue's calendar, by the method actually used.
+ * - **Still owed at the end of the day**: `counter_refunds_owed` and `counter_fee_refunds_owed` rows that arose by then and were not settled until
+ *   after it. An obligation is not money gone from a till.
+ * - **Credit notes not counted as cash**: a credit note in the day's journal that a payout, or an owed row of a customer's cancellation, points
+ *   at is the record of the refund, so its amount is put back into the till and the payout takes the cash out on the day it happened. A payout
+ *   that names no credit note (written before they were linked) is left to its credit note as it always was, so nothing is taken out twice.
+ */
+async function refundsOn(venueId: number, date: string, staffId: number | null, rows: Row[]): Promise<{ report: CashUpRefunds; notes: Map<string, number>; out: Map<string, number> }> {
+  const db = getDb();
+  const v = (await db.prepare("SELECT time_zone, lat, lng FROM venues WHERE id = ?").get(venueId)) as { time_zone: string | null; lat: number | null; lng: number | null } | undefined;
+  const zone = venueZoneOf(v ?? {});
+
+  // The day's credit notes (in this scope) that are the record of a refund owed or handed back, not cash leaving a till.
+  const noteIds = rows.filter((r) => r.type === "Credit note" && r.ref.startsWith("receipt:")).map((r) => Number(r.ref.slice("receipt:".length)));
+  const linked = new Set<number>();
+  if (noteIds.length > 0) {
+    const ph = noteIds.map(() => "?").join(",");
+    const found = (await db
+      .prepare(
+        `SELECT credit_note_id AS id FROM counter_payouts WHERE credit_note_id IN (${ph})
+         UNION SELECT credit_note_id FROM counter_fee_refunds_owed WHERE credit_note_id IN (${ph})
+         UNION SELECT r.id FROM counter_refunds_owed o JOIN receipts r ON r.kind = 'credit_note' AND r.source = ${CUSTOMER_NOTE_SOURCE} WHERE r.id IN (${ph})`
+      )
+      .all(...noteIds, ...noteIds, ...noteIds)) as { id: number }[];
+    for (const f of found) linked.add(Number(f.id));
+  }
+  const notes = new Map<string, number>();
+  for (const r of rows) {
+    if (r.type !== "Credit note" || !r.ref.startsWith("receipt:") || !linked.has(Number(r.ref.slice("receipt:".length)))) continue;
+    if (r.method && (MONEY_METHODS as readonly string[]).includes(r.method)) notes.set(r.method, (notes.get(r.method) ?? 0) - r.gross);
+  }
+
+  // Handed back on the day.
+  const bookings = (await db
+    .prepare(
+      `SELECT b.code, p.amount::float AS amount, p.via, p.credit_note_id, r.number AS note_number, b.paid_via, p.admin_name, p.paid_out_at
+         FROM counter_payouts p JOIN bookings b ON b.id = p.booking_id LEFT JOIN receipts r ON r.id = p.credit_note_id
+        WHERE p.venue_id = ? AND NOT b.test AND ${dayIn("p.paid_out_at")} = ?${staffId === null ? "" : " AND p.admin_id = ?"}`
+    )
+    .all(venueId, zone, date, ...(staffId === null ? [] : [staffId]))) as {
+    code: string; amount: number; via: string | null; credit_note_id: number | null; note_number: string | null; paid_via: string | null; admin_name: string | null; paid_out_at: unknown;
+  }[];
+  const fees = (await db
+    .prepare(
+      `SELECT CASE WHEN o.pass_id IS NOT NULL THEN 'pass' WHEN o.membership_id IS NOT NULL THEN 'membership' ELSE 'entry' END AS kind,
+              COALESCE(p.code, m.code, t.name, '') AS reference, o.amount::float AS amount, o.via, o.credit_note_id, r.number AS note_number, o.admin_name, o.settled_at
+         FROM counter_fee_refunds_owed o
+         LEFT JOIN tournament_entries e ON e.id = o.tournament_entry_id LEFT JOIN tournaments t ON t.id = e.tournament_id
+         LEFT JOIN passes p ON p.id = o.pass_id LEFT JOIN memberships m ON m.id = o.membership_id LEFT JOIN receipts r ON r.id = o.credit_note_id
+        WHERE o.venue_id = ? AND o.settled_at IS NOT NULL AND ${dayIn("o.settled_at")} = ?${staffId === null ? "" : " AND o.admin_id = ?"}`
+    )
+    .all(venueId, zone, date, ...(staffId === null ? [] : [staffId]))) as {
+    kind: "pass" | "membership" | "entry"; reference: string; amount: number; via: string | null; credit_note_id: number | null; note_number: string | null; admin_name: string | null; settled_at: unknown;
+  }[];
+  const asMethod = (m: string | null) => ((COUNTER_METHODS as readonly string[]).includes(m ?? "") ? m : null);
+  const handed: CashUpHandedBack[] = [
+    ...bookings.map((r) => ({
+      at: iso(r.paid_out_at),
+      kind: "booking" as const,
+      reference: r.code,
+      creditNote: r.note_number,
+      amount: roundMoney(Number(r.amount)),
+      method: asMethod(r.via),
+      paidWith: asMethod(r.paid_via),
+      countedAs: r.credit_note_id === null ? ("credit note" as const) : ("payout" as const),
+      staffName: r.admin_name,
+    })),
+    ...fees.map((r) => ({
+      at: iso(r.settled_at),
+      kind: r.kind,
+      reference: r.reference,
+      creditNote: r.note_number,
+      amount: roundMoney(Number(r.amount)),
+      method: asMethod(r.via),
+      paidWith: asMethod(r.via),
+      countedAs: r.credit_note_id === null ? ("credit note" as const) : ("payout" as const),
+      staffName: r.admin_name,
+    })),
+  ].sort((a, b) => a.at.localeCompare(b.at) || a.reference.localeCompare(b.reference));
+  const out = new Map<string, number>();
+  for (const h of handed) if (h.countedAs === "payout" && h.method) out.set(h.method, (out.get(h.method) ?? 0) + h.amount);
+
+  // Still owed at the end of the day (the venue's, not one person's).
+  const owedBookings = (await db
+    .prepare(
+      `SELECT b.code, o.amount::float AS amount, o.via, o.cause, o.owed_since, r.number AS note_number
+         FROM counter_refunds_owed o JOIN bookings b ON b.id = o.booking_id LEFT JOIN receipts r ON r.kind = 'credit_note' AND r.source = ${CUSTOMER_NOTE_SOURCE}
+        WHERE o.venue_id = ? AND NOT b.test AND ${dayIn("o.owed_since")} <= ? AND (o.settled_at IS NULL OR ${dayIn("o.settled_at")} > ?)`
+    )
+    .all(venueId, zone, date, zone, date)) as { code: string; amount: number; via: string | null; cause: string; owed_since: unknown; note_number: string | null }[];
+  const owedFees = (await db
+    .prepare(
+      `SELECT CASE WHEN o.pass_id IS NOT NULL THEN 'pass' WHEN o.membership_id IS NOT NULL THEN 'membership' ELSE 'entry' END AS kind,
+              COALESCE(p.code, m.code, t.name, '') AS reference, o.amount::float AS amount, o.via, o.cause, o.owed_since, r.number AS note_number
+         FROM counter_fee_refunds_owed o
+         LEFT JOIN tournament_entries e ON e.id = o.tournament_entry_id LEFT JOIN tournaments t ON t.id = e.tournament_id
+         LEFT JOIN passes p ON p.id = o.pass_id LEFT JOIN memberships m ON m.id = o.membership_id LEFT JOIN receipts r ON r.id = o.credit_note_id
+        WHERE o.venue_id = ? AND ${dayIn("o.owed_since")} <= ? AND (o.settled_at IS NULL OR ${dayIn("o.settled_at")} > ?)`
+    )
+    .all(venueId, zone, date, zone, date)) as { kind: "pass" | "membership" | "entry"; reference: string; amount: number; via: string | null; cause: string; owed_since: unknown; note_number: string | null }[];
+  const owed: CashUpStillOwed[] = [
+    ...owedBookings.map((r) => ({
+      kind: "booking" as const,
+      reference: r.code,
+      amount: roundMoney(Number(r.amount)),
+      method: asMethod(r.via),
+      cause: r.cause,
+      customerCancelled: r.cause === "customer_cancelled" || r.cause === "place_withdrawn",
+      creditNote: r.note_number,
+      since: iso(r.owed_since),
+    })),
+    ...owedFees.map((r) => ({
+      kind: r.kind,
+      reference: r.reference,
+      amount: roundMoney(Number(r.amount)),
+      method: asMethod(r.via),
+      cause: r.cause,
+      customerCancelled: false,
+      creditNote: r.note_number,
+      since: iso(r.owed_since),
+    })),
+  ].sort((a, b) => a.since.localeCompare(b.since) || a.reference.localeCompare(b.reference));
+
+  return {
+    notes,
+    out,
+    report: {
+      handed,
+      handedByMethod: byMethodOf(handed.filter((h) => h.countedAs === "payout")),
+      owed,
+      owedByMethod: byMethodOf(owed),
+      owedTotal: roundMoney(owed.reduce((s, o) => s + o.amount, 0)),
+    },
+  };
 }
 
 /**

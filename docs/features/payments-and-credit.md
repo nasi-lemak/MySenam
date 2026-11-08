@@ -724,15 +724,17 @@ in `src/lib/counter-refunds.ts`), written in the cancellation's own transaction:
   been returned yet" (`how: "counter"` in `refunds`; customer text `rf74.refundCounter` in English, Malay, Chinese and Tamil), by email or WhatsApp where
   they left an address, and never that the money was returned. The row records when they were told (`customer_notified_at`); with no address it stays
   empty and the panel asks staff to tell them at the counter.
-- **The till.** The credit note counts in the cash-up on the day it was written, under the method it was paid by, with no member of staff on it (so it
-  is in the all-staff cash-up, not a desk's own); the payout is in the list of money handed back on the day it was handed over. Same amount and method
-  when it goes back the way it was paid; another day, or another method, puts them on two days or two methods. Recorded in
-  [known limitations](../roadmap/known-limitations.md) and in the ADR with the alternative (writing the credit note when the money is handed back, as the
-  venue's causes do).
+- **The till.** The credit note is the record of the cancellation, in the journal on the day it was written, under the method it was paid by, with no member
+  of staff on it. It is **not** cash leaving the till: the cash-up lowers the till by the payout, on the day it was handed over and by the method used
+  ([cash-up](#cash-up), [ADR 0075](../architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)),
+  and shows the refund as *still owed back* until then.
 - **Past cancellations** are not turned into tasks (nobody can say whether the money was handed over then, and a refund must not be paid twice).
   `scripts/reconcile-counter-cancellations.sql` is read only and lists the candidates for a manager to review: cancelled, paid at the counter, a credit
   note, no owed row, no payout, no credit given by staff, not logged as cancelled by a member of staff.
-  Run it with `psql "$DATABASE_URL" -f scripts/reconcile-counter-cancellations.sql`; a row is a lead, not a proof.
+  Run it with `psql "$DATABASE_URL" -f scripts/reconcile-counter-cancellations.sql` (add `--csv` for a spreadsheet); a row is a lead, not a proof.
+  Its columns are the review table: `venue`, `booking_code`, `cancelled_on` (the credit note's date on the venue's calendar), `amount_possibly_owed`,
+  `paid_with`, `payout_evidence` (the activity log's `payment.paid_out` or `payment.owed_credited` for the booking, or *none found*), `possible_duplicate`
+  (other credit notes on the booking, or stored credit added for it, or *no*), `staff_action` and `credit_note`. It names no customer and creates no task.
 
 Tested in `tests/customer-cancel-counter-owed.test.ts` (each customer path, a late share on the terms sold, an edit of the policy afterwards, the
 deposit, the withdrawals, the message, settling once and twice, an alternative method, credit, the desk and the manager, another venue's staff, a double
@@ -1202,6 +1204,23 @@ who counted and who checked it.
   printout too), and one line saying that if any of it was real money the
   booking is kept as real, which moves it into the real totals
   (`tests/cash-up.test.ts`, `tests/test-bookings-money.test.ts`).
+- **Money received and money handed back are counted on the day each happened** ([ADR 0075](../architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)).
+  A customer who cancels on the 8th is owed RM30 on the 8th; staff pay it in cash on the 9th: the cash leaves the till on the 9th. So each till's
+  *expected* amount is the journal's net, plus the credit notes of the day that only record a refund (a payout or an owed row points at them), less the
+  refunds actually handed over that day by the method used (`counter_payouts` by `paid_out_at`, and the settled counter fee, pass and membership refunds),
+  plus the hire deposits' part. The credit note stays in the journal as written (its date, number, tax and the table above are the accountant's, unchanged);
+  it is only not counted as cash leaving the till, and the sheet shows the amount put back (`refundNotes`) and the amount handed back (`handedBack`) so it
+  adds up. Every other credit note (a sale voided, a price adjusted, a place staff took off at the counter, a *mark unpaid*) is still a till movement.
+  A refund paid by DuitNow and handed back in cash lowers the cash drawer, not the QR account. A refund settled as stored credit moves no cash. A payout from
+  before payouts named their credit note is left to its credit note, so nothing leaves a till twice; an unrecorded method is in no till. A desk's own cash-up
+  takes out the payouts it handed over (the customer's credit note names nobody, so none is put back there). Over the days a refund spans the total is unchanged;
+  only the day each figure falls on moved.
+- **Refunds, apart** (*Refunds: handed back and still owed*, `refunds` on `GET /api/admin/cash-up`, on the printout too): what was handed back that day, with the
+  method used, the method the customer paid with and who handed it over; and what is **still owed back at the end of that day** (the obligation arose by then and
+  was settled after it), by how the customer paid, why and since when, with a total. An unpaid refund is not money gone from a till. No customer is named. Tested in
+  `tests/cash-up-refunds-across-days.test.ts` (the owner's example, DuitNow refunded in cash, a late share, a deposit, a cheaper move then a cancellation, a pass,
+  settled twice and at once, staff cancelling at the counter, the venue's closures, stored credit, rows from before the link, a desk's own cash-up, another venue's)
+  and `tests/components/cash-up-refunds.test.tsx`.
 - **What is not money** is shown apart: a booking paid from stored credit
   already sold moves no money, and is left out of the total.
 - **Hire deposits are in the drawer but are not takings.** Under the table,
