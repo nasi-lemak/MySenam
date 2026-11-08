@@ -349,6 +349,103 @@ levels are in [incident response](incident-response.md#how-bad-it-is).
 | Suspected privacy breach | Incident lead | Lawyer first; then as the lawyer advises |
 | Staff lose access | Owner | Technical contact for the last owner |
 
+## Proposed starting targets (proposals, not guarantees; owner to confirm)
+
+*Added 8 November 2026. Nothing in the repository sets a response time except the severity levels of
+[incident response](incident-response.md#how-bad-it-is), and nothing in the app measures any of the targets below. These are
+**proposals** sized for one named operator with a back-up, a small number of venues and opening-hours cover. They are not
+promises to customers or to venues, and none is in force until the owner writes **yes** in the last column. Where a target
+differs from an existing rule the table says so, and the existing rule stands until the owner decides. A *working day* here is a
+day on which the operator is on duty (days and hours: ____).*
+
+| Situation | The clock starts when | Proposed target | Existing rule it sits beside | Owner confirmed? |
+| --------- | --------------------- | --------------- | ---------------------------- | ---------------- |
+| Payment-mismatch review (*Payments to check*) | The row first appears, or the operator first sees it | Looked at the same working day. Checked against the venue's gateway dashboard and either marked checked with a note, or escalated, within 2 working days. A payer with *no usable contact* rung within 1 working day | [Every day, item 2](#every-day). With online payment off the list should be empty; a row is then an incident | |
+| Refund acknowledgment (a customer asks where their refund is) | The customer's message, call or visit | Answered within 1 working day, with the amount and the date it is owed (from the booking and *Refunds owed*). A customer with no email, rung | The customer is told the date at cancellation, automatically; the panel says when to ring | |
+| Manual refund settlement | The refund is first seen owed | A counter refund handed back, or given as credit, within 2 working days or at the customer's next visit if sooner. A refund made by hand in Billplz's dashboard within the venue's own period (7 days unless the venue changed it, 1 to 30), and the proposal is no later than 5 working days. Never marked done before the money has gone | The venue's period is a promise to the customer, not a limit on what is owed ([refunds made by hand](../features/payments-and-credit.md#refunds-made-by-hand)); whether it fits consumer law is not settled here | |
+| Critical incident response | The incident is first seen or reported | Acknowledged within 30 minutes in opening hours and within 2 hours outside them; the incident record opened at once; the owners told within the hour | Critical means "at once, day or night; owners told within the hour" in [incident response](incident-response.md#how-bad-it-is): the owner decides whether night-time cover is real for a small operator | |
+| Failed backup response | The alert, or a red line on *Backups* | Acknowledged at the next check, the same working day; *Back up now* pressed; the cause found or escalated within 1 working day | High is "same working day"; **critical** if no good backup can be restored ([a backup fails](#a-backup-fails)) | |
+| Failed email response | The alert, a *Retrying* or *Given up* count rising, or a customer who cannot get a link | Acknowledged within 4 working hours; customers who must not miss news rung the same day; the cause (provider, credential, quota, sandbox) identified the same working day | Medium is "within two working days"; this is tighter because sign-up and password-reset are refused while email cannot deliver ([email delivery fails](#email-delivery-fails)) | |
+| Venue-closure escalation | The venue manager says it is closed, or the operator finds it | The venue manager rung at once; the owner told the same day; the closure written first and the follow-up lists cleared the same working day; the lawyer contacted within 2 working days if customers' stored value is stranded | [A venue closes unexpectedly](#a-venue-closes-unexpectedly) and the escalation table | |
+| Customer-support acknowledgement | A customer's message, call or email reaches anyone | Acknowledged within 1 working day, even if the answer takes longer | Where customers reach support (a mailbox, a number) is **not decided** in the repository: ____ | |
+
+## Daily handover record
+
+*One page, written by the operator at the end of the day and read by whoever starts the next. A form to copy; nothing is filled
+in. Write no customer's name, telephone number, email address, key or password on it: a booking code or a payment reference is
+enough.*
+
+**Date:** ____  **Venue(s):** ____  **Operator:** ____  **Back-up operator:** ____  **Started:** ____  **Finished:** ____
+
+| Item checked | Checked | Count or value | Oldest age / note |
+| ------------ | ------- | -------------- | ----------------- |
+| **System health**: alerts outstanding; scheduler line | [ ] | | |
+| **Backups**: state; newest snapshot age; last off-site copy | [ ] | | |
+| **Needs attention**: every block opened | [ ] | | |
+| **Payments to check** | [ ] | count ____ | |
+| **Refunds owed**; overdue | [ ] | ____ / ____ | |
+| **Owed back at the counter** | [ ] | count ____ | |
+| **Messages to customers**: *Retrying*, *Given up* | [ ] | ____ / ____ | |
+| Unpaid or held bookings, today and tomorrow | [ ] | ____ | |
+| **Cash-up**: counted, expected, variance, counted by | [ ] | ____ / ____ / ____ | |
+| **Handed back at the counter** matches the till | [ ] | | |
+| SES reputation: bounce rate, complaint rate | [ ] | ____ / ____ | |
+| Closures and anything unusual from the venue managers | [ ] | | |
+
+| # | Unresolved issue (no customer names or numbers) | Venue | Booking code or payment reference | Owner (who) | Next action | By when | Told |
+| - | ------------------------------------------------ | ----- | --------------------------------- | ----------- | ----------- | ------- | ---- |
+| 1 | | | | | | | |
+| 2 | | | | | | | |
+| 3 | | | | | | | |
+| 4 | | | | | | | |
+
+Money moved today that needs a second look (what, how much, who handed it over, the reference): ____
+
+Incidents opened or closed today, and the times: ____
+
+**Signed:** operator ____ (date, time) · venue manager ____ · handed over to ____ · received by ____ (date, time)
+
+## The daily reconciliation operator
+
+The pilot starts only when this person is named ([pilot readiness](pilot-readiness-2026-11-07.md)). Name: ____. Back-up: ____.
+Reports to: ____. This is a description of the role from the checklists above; it adds no duty the checklists do not already
+name, and it is not an employment document.
+
+**Responsibilities.**
+
+1. Does the start-of-day and end-of-day sheets for each pilot venue, and the weekly list, and fills in the handover record.
+2. Opens every list that does not tell them it needs opening: *Payments to check*, *Refunds owed*, *Owed back at the counter*,
+   *Needs attention*, *Messages to customers*, *Backups*, *System health*.
+3. Compares what the screens say with the outside records: the venue's gateway dashboard for online money, the till and the
+   cash-up for counter money, the SES console for email.
+4. Chases the people who must act: the venue manager (a late share, an exception, a hand-back at the counter), the technical
+   contact, the owner, the lawyer, in the order of the escalation table.
+5. Rings the customers the screens say to ring.
+6. Keeps the incident record and the handover record, and keeps evidence before changing anything.
+
+**Must not.**
+
+- **Never settle, close or clear a financial obligation on the screen's word alone.** *Mark refunded* and *Handed back* are pressed
+  only by a named person after the money has actually gone, with its reference. *Mark checked* is pressed only after the payment
+  has been compared with the gateway's own record, with a note, and it moves no money. *Dealt with* is pressed only when the
+  cause has been dealt with.
+- Never mark a refund done "to clear the list", never press a button on a row they have not read, and never settle a row on
+  another day's evidence.
+- Never create, edit, delete or re-date a receipt, a credit note or a ledger entry, or adjust a customer's credit or a pass, to
+  make a figure agree. A variance is recorded as a variance.
+- Never override a venue's cancellation terms or its late share; the venue manager decides.
+- Never tell a customer that a credit note, a suspension, or the closing of a list means they have been paid or released from
+  what they are owed.
+- Never decide a legal, tax or privacy question, and never tell a customer or a regulator that a breach has or has not happened:
+  the incident lead and the lawyer do ([a suspected privacy breach](#a-suspected-privacy-breach)).
+- Never change `MAIL_DELIVERY_VERIFIED`, `OFFSITE_TRANSFER_APPROVED`, a key, a payment account or a venue's online-payment
+  setting; those are the owner's. Never put a key, a password or a customer's data in a chat, a ticket or the handover record.
+- Never restore a backup over the live database, or take the app out of service, without the technical contact and the incident
+  lead.
+
+**What the operator needs.** The access in [before the pilot starts](#before-the-pilot-starts-what-the-operator-needs) and the
+escalation table filled in. The proposed targets above are the operator's yardstick only once the owner has confirmed them.
+
 ## Questions for the owner
 
 Things this document could not source:

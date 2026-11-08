@@ -64,7 +64,9 @@ dashboard during the pilot.
    run).
 
 Pass means the synthetic set round-tripped, restored in isolation and matched, with the refusals
-refused and the time recorded. A passing stand-in test does not count.
+refused and the time recorded. A passing stand-in test does not count. What the owner provides,
+in order, what each command proves and does not, what the code backs up and does not, and the
+drill's timings table are in [backups](backups.md#owner-what-to-provide-for-the-first-real-off-site-backup).
 
 ## 3. Billplz sandbox (mandatory before online checkout)
 
@@ -78,6 +80,75 @@ fields; whether a bill can be paid short or over (the settlement code holds a ca
 `paid_amount`, so if the sandbox never sends it, **every** Billplz payment is held); duplicate
 and delayed callbacks; a hold that lapsed before payment; a manual refund through the
 Refunds owed list; and the failure notices. Online checkout is offered only after these pass.
+
+### 3a. Billplz: what to provide, and the scenarios to run
+
+**Status: BLOCKED — ONLINE CHECKOUT MUST REMAIN DISABLED.** No sandbox credential, public address or result exists
+([activation record](pilot-activation-2026-11-08.md#b2-and-billplz)); every scenario below is **NOT RUN**. Online checkout is
+off while no pilot venue has a Billplz account connected under *Online payment*: it cannot be turned on without one
+([paying online to hold a booking](../features/payments-and-credit.md#paying-online-to-hold-a-booking)). The sandbox keys below go
+only into a staging install holding synthetic data, never into a pilot venue's settings, and a pilot venue's live keys are not
+needed for any of this.
+
+**What was checked against the code on 8 November 2026** (`scripts/verify-integrations.mjs`, `src/lib/billplz.ts`,
+`src/lib/gateways/billplz.ts`, `src/lib/payment-settlement.ts`), so that section 3 above can be relied on as far as it goes:
+
+- Accurate: the three sandbox variables; the check refuses any `billplz.com` address that is not the sandbox before sending
+  anything; a paid report without `amount` or `paid_amount` is **held, applied to nothing and owed back whole** (the hold issue
+  *unverified*), for the callback and for the bill the app fetches to believe a paid redirect; and the redirect carries only
+  `billplz[id]`, `billplz[paid]`, `billplz[paid_at]` and `billplz[x_signature]`.
+- Not said above, and true: without `--through` the check creates **one** sandbox bill for RM1.00 (callback address
+  `example.invalid`, so nothing can reach MySenam), reads it back (it expects `collection_id`, `amount` 100 and `paid_amount` 0
+  on the unpaid bill), then deletes it. With `--through <address>` it signs in to that staging deployment as its owner, so
+  `E2E_OWNER_EMAIL` and `E2E_OWNER_PASSWORD` of that deployment must be in the environment (a deployment made by
+  `scripts/stage-remote.mjs` records them under `artifacts/staging-remote/`, which is not committed; do not print them), saves the
+  sandbox account in the first venue with a court, opens a booking's payment, and then stops: **paying on Billplz's sandbox page
+  is a manual step** (it is a page, not an API), and the callback needs the public address.
+- The callback address is not set in Billplz's dashboard: the app sends it with every bill, as
+  `<MYSENAM_URL>/api/payments/billplz/callback`, so `MYSENAM_URL` on the staging install must be its public HTTPS address.
+- Sandbox keys work only with the *Sandbox* box ticked in the venue's settings, and live keys only without it (the app's own
+  connection test says so).
+
+**Credentials needed, and where they live.** From a Billplz **sandbox** account the owner holds: the API secret key, the
+collection ID and the X Signature key (Billplz → Settings → Keys & Integration; Billing → the collection). For the check they
+are `BILLPLZ_SANDBOX_API_KEY`, `BILLPLZ_SANDBOX_COLLECTION_ID` and `BILLPLZ_SANDBOX_X_SIGNATURE_KEY` in the environment's secret
+store of the machine that runs it; never in chat, in a file in the repository, or on the command line. On the staging install the
+app stores them as the venue's payment account, each secret sealed under `MYSENAM_SECRET`. Provided by the owner: ____ (date).
+
+**A public callback address.** Billplz's servers must reach the staging install over HTTPS; the local machine cannot receive the
+callback (there the payment can only be settled by the return page, which asks the provider). `scripts/stage-remote.mjs` makes one
+on DigitalOcean, and **nothing paid is created without the owner's approval**. The guards as the script has them: it needs a
+`DIGITALOCEAN_TOKEN` of a team used only for staging; `plan` prints the estimate and creates nothing; `up` refuses unless
+`--approve-usd` is at least the estimate and the estimate is within `STAGING_MAX_USD` (default 1.00); only three droplet sizes are
+allowed, at list prices recorded in the script; a deployment lives 1 minute to 24 hours (2 hours by default); every droplet is
+tagged `mysenam-staging`, `mysenam-stg-<id>` and `expires-<time>`; `down` deletes by its own deployment tag only; `gc` deletes
+only tagged droplets past their expiry; a powered-off droplet is still billed, so `gc` is run on a schedule while anything is up.
+Whether to spend, how much, and who holds the token: ____. No such deployment has been made.
+
+**The scenarios.** Run them in a staging deployment of synthetic data, with the sandbox account connected and online payment
+offered on one synthetic venue. For each, write down what Billplz actually sent (the callback's fields, the bill read back) and
+what the app did (the booking, the payment row, *Payments to check*, *Refunds owed*, the activity log). A mock gateway in the
+suite (`tests/billplz-settlement.test.ts`) proves the arithmetic and the guards, not Billplz.
+
+| # | Scenario | How to trigger | What the app must do | Result |
+| - | -------- | -------------- | -------------------- | ------ |
+| 1 | The key, the collection and a bill | `node scripts/verify-integrations.mjs billplz` | Key and collection accepted; bill created, read back unpaid with `collection_id`, `amount` 100 and `paid_amount` 0, and deleted | NOT RUN |
+| 2 | Expected amount, paid in full | Through the staging address: book a court at the sandbox venue (note the price in ringgit), open the payment, pay it on Billplz's sandbox page | Settle once: booking confirmed, `received_amount` equal to what Billplz took, one receipt, nothing on *Payments to check* | NOT RUN |
+| 3 | What `paid_amount` means | On scenario 2, compare `amount` and `paid_amount` on the callback and on the bill (`GET /api/v3/bills/:id`), in sen; note whether `paid_amount` is present at all, whether it equals `amount`, and whether it is reduced by Billplz's fee | Believe `paid_amount` as what was taken. **If the sandbox sends none, every Billplz payment is held and owed back: online checkout cannot be offered** | NOT RUN |
+| 4 | The redirect alone | Pay with the callback unable to arrive (a staging address Billplz cannot reach), then return to the page | A paid redirect is believed only when the bill fetched with the venue's key says paid with the same figures; if Billplz cannot be asked, nothing is applied and the return page shows the payment's own state | NOT RUN |
+| 5 | A duplicate callback | Replay the captured callback form (same signed fields) to the staging callback address a second and third time | Answer 200 each time; settle once; no second receipt, credit or confirmation | NOT RUN |
+| 6 | A delayed callback | Pay, and let the callback arrive after the return page has been shown (or after Billplz's retries: 15 seconds, then 15 minutes, 15 minutes, 24 hours) | The same outcome as an on-time one, whichever of the redirect and the callback arrives first; recorded once | NOT RUN |
+| 7 | The hold expired before payment | Set the venue's *Pay online to hold a booking* minutes to the shortest the settings allow; book; open the payment page; do not pay until the hold has lapsed and been let go; then pay on the sandbox page (Billplz pages do not close) | The payment is not applied and the booking is not revived; all of it is owed back; it shows as *paid after the hold was let go* under *Payments to check* and *Refunds owed*; the payer is told (an email only if the address was proved) | NOT RUN |
+| 8 | Underpayment | Only if the sandbox lets a bill be paid for less than its amount (the documents do not say): pay it short | Nothing applied; what was received is recorded and all owed back; on *Payments to check* as *underpaid*. If the sandbox cannot do it, write that, and the behaviour stays proven only by the stand-in | NOT RUN |
+| 9 | Overpayment | Only if the sandbox lets a bill be paid for more | The page's amount is settled; the excess is owed back; *overpaid* on *Payments to check* | NOT RUN |
+| 10 | A forged callback | POST a form with a wrong `x_signature` to the staging callback address | Answered 400; nothing changes. A callback for another bill or collection changes nothing either | NOT RUN |
+| 11 | Manual refund reconciliation | Cancel the paid booking of scenario 2 as a customer or as staff; open *Refunds owed*; refund in Billplz's dashboard if the sandbox offers it, and otherwise **do not mark it refunded** (no money moved); with a real reference, press *Mark refunded* | The refund is shown owed with its due date (the venue's period, 7 days unless changed); a refund marked refunded once is not made again and a second click is refused; the activity log names who; an owed refund is never shown as paid | NOT RUN |
+| 12 | The failure notices | From scenarios 7 to 9 | The payer is told what happened where their address was proved, and staff see *no usable contact* where it was not | NOT RUN |
+
+A scenario Billplz's sandbox cannot produce is recorded as such, with what was tried, not skipped silently. **Pass** is every
+scenario that can be run behaving as the right-hand column says, with the callback's real fields written down. Even then,
+a sandbox is not the live service (live fees, settlement times and FPX refunds are not shown by it). After a pass the owner
+decides whether to offer online checkout at one venue first; until then it stays disabled.
 
 ## 4. Everything else stays off
 

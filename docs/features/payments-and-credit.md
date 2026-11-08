@@ -742,6 +742,57 @@ submit, the customer against staff, against the desk taking the payment back, a 
 reconciliation script) on PGlite and Postgres, and `tests/customer-cancel-counter-owed-migration.test.ts` (the migrations on an install with money
 already owed). A mock gateway is not a live check; the counter is not a provider, and nothing here contacts one.
 
+#### Reviewing the script's output, row by row
+
+*A checklist for the person who reviews `scripts/reconcile-counter-cancellations.sql`. **No such review has been done**: the script
+has been run only on seeded rows, never on a pilot venue's real data, and nothing in this document says any row was returned or
+unpaid. The review is the manager's, with the venue's own records, and it is not a verification by MySenam.*
+
+**What the output is.** One row for each booking that was cancelled by its customer, paid at the counter, given a credit note, and
+shows no owed row, no payout, no credit given by staff and no staff cancellation in the log. **A *candidate* is a lead, not a
+finding that money is unpaid.** The script cannot know whether the money was handed back at the till on the day: before migration
+0346 nobody wrote that down. A row that is not listed is not proof that it was handled either (a test or demo booking, a booking
+paid by credit or a pass, one paid online, and one that a member of staff is logged as having cancelled are left out on purpose).
+`amount_possibly_owed` is the credit note's total, after any late share the venue kept: what the cancellation sold back, not a
+confirmed debt. `payout_evidence` and `possible_duplicate` are warnings that part or all of it may already be back; *none found*
+means only that the log holds nothing, not that nothing was paid.
+
+**For each row**, a manager of that venue (not the front desk, and not one person alone on money) writes in a review log:
+
+| Column of the output | Question to answer | Where to look |
+| -------------------- | ------------------ | ------------- |
+| `booking_code`, `venue`, `cancelled_on`, `credit_note` | Which booking, and is it the venue's own? | *Bookings* tab, the booking by its code (the customer is shown to that venue's staff); the credit note by its number |
+| `paid_with`, `amount_possibly_owed` | How was it paid, and what would be handed back (the note's total, not the booking's price)? | The booking; the credit note |
+| `payout_evidence` | Does the log say money was paid out or given as credit for this booking? | *Reports → Staff activity*, filtered by the booking code: `payment.paid_out`, `payment.owed_credited`, `booking.cancelled` |
+| `possible_duplicate` | Were other credit notes or stored credit written for it (a move to a cheaper time, a place taken off, a price adjustment), so that part is already back? | The booking's other credit notes; the customer's credit entries for it |
+| Was the money already returned? | Is there a till record of a payout on the day or the days after the cancellation? | *Credit & passes → Cash-up* for `cancelled_on` and the days after (counted against expected; a variance on a day with a cancellation is a lead); the venue's own cash book |
+| The customer | Does the customer say it was handed back, and when, and how? | Ask the customer (by the contact the venue already holds). Do not put the answer in a chat or in this log with a name |
+
+**Decide one of three, and write why.** Record the decision, the evidence, who decided and when; nothing is changed in the system
+by recording it:
+
+1. **Not returned, owed.** The evidence says the money was never handed back (the till, the log and the customer agree). The
+   manager hands back what is still owed, once, and notes it. **The repository has no screen, route or script that creates an
+   owed row, or records a payout, for a past cancellation**: *Owed back at the counter* is settled only from a row written at
+   the cancellation, and the past ones were deliberately not backfilled so that nothing is paid twice
+   ([ADR 0074](../architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md),
+   decision 4). So where, and in which record, a late hand-back is written down so that the next cash-up is not confused by it is
+   **an open question for the owner and the technical contact**; do not improvise it with a manual ledger entry or a repeated
+   cancellation.
+2. **Returned.** The evidence says it was handed back (a till payout, a log entry, the customer's word with a date). Write the
+   evidence note and leave the row. Nothing in MySenam is changed.
+3. **Leave.** The evidence is not enough either way. Write what was tried and the date to look again. Whether a customer who
+   later comes forward is then paid is the owner's decision, made before the review starts: ____.
+
+| Venue | Booking code | `cancelled_on` | Amount | Paid with | Log evidence | Duplicate? | Till checked (days, result) | Customer asked (when, answer) | Decision (1, 2 or 3) | Evidence note | Reviewed by | Date |
+| ----- | ------------ | -------------- | ------ | --------- | ------------ | ---------- | --------------------------- | ----------------------------- | -------------------- | ------------- | ----------- | ---- |
+| | | | | | | | | | | | | |
+
+A pilot that opens with no earlier bookings has an empty output; the review applies to any install that already holds counter
+bookings cancelled before migration 0346. The launch gate "historical counter-refund candidates reviewed" stays **No** until a
+person has run the script on the real data and recorded a decision for every row
+([activation record](../operations/pilot-activation-2026-11-08.md#7-launch-gates-as-they-stand)).
+
 ### Refunds for one person's place
 
 Taking one person off a paid booking, the others staying booked

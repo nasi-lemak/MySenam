@@ -754,3 +754,143 @@ proven by running `verify-offsite` and the off-site steps above against the
 real provider ([feature status](../product/feature-status.md), launch checklist in
 [deployment](deployment.md#launch-integration-checklist)). Local tests do not
 show that production can be recovered.
+
+## Owner: what to provide for the first real off-site backup
+
+*Added 8 November 2026 for the restricted pilot. A checklist for the owner, written from this document, `scripts/verify-offsite.mjs`,
+`scripts/verify-integrations.mjs`, `src/lib/backup.ts` and `src/lib/offsite.ts`. **Status: BLOCKED, nothing below has been done**: no
+bucket, key, key pair, declaration or approval exists, and no real bucket has been contacted
+([activation record](pilot-activation-2026-11-08.md#b2-and-billplz)).*
+
+**Nothing is created, generated, uploaded or approved without the owner's say-so.** That covers the bucket, the application keys,
+the encryption and signing key pairs, `OFFSITE_TRANSFER_APPROVED`, and any spend. The Backblaze account's master key creates the
+bucket and the two keys and stays with the account owner: it never goes in any configuration here, in a chat or in Git. No
+secret is written into this document; the values below are names and shapes, and a person fills them in elsewhere.
+
+### The configuration, in order
+
+| # | What | What to provide, and how it is found | Where it ends up | Done (owner) |
+| - | ---- | ------------------------------------ | ---------------- | ------------ |
+| 1 | The destination is decided | The owner decided on 24 October 2026 that off-site backups may be held abroad, in Backblaze B2, US West recommended ([privacy](../architecture/privacy.md#backups-held-abroad)). That chooses the place; it does not make a transfer lawful | The launch record | |
+| 2 | The transfer safeguards, before any real data | The six steps and the lawyer's eight questions in [privacy](../architecture/privacy.md#backups-held-abroad). This document decides none of them. Note that the code cannot tell a synthetic upload from a real one: `verify-offsite --go` stops at *transfer allowed* unless the declaration (13), the approval (14) and encryption (11) are all set on the test machine, so **even the synthetic drill needs the approval variable to be set**. Whether the owner may set it on a test machine for a synthetic-only run before the lawyer has answered is the owner's decision, and the safer course is to wait: ____ | The privacy notice, the transfer register, the lawyer's answers | |
+| 3 | The bucket name | Chosen by the owner when the bucket is made | `OFFSITE_S3_BUCKET` (server, test and restore machines) | |
+| 4 | The bucket's region | Read from the bucket's details page in the Backblaze console. **Never guess it.** The example `us-west-004` in the documents is the documented form, not this owner's bucket | Recorded; implied by the endpoint | |
+| 5 | The endpoint | The S3 endpoint the details page shows, in the documented form `https://s3.<region>.backblazeb2.com`. The app reads the signing region and the country from the host name (`us-west` is the United States); `OFFSITE_S3_REGION` is set only for another provider | `OFFSITE_S3_ENDPOINT` | |
+| 6 | Object Lock and versions | Object Lock **on** for the bucket with a default retention (the documented choice is **14 days, governance mode**; see 15). Turn it on when the bucket is made: on B2 it can be enabled on an existing bucket and never turned off. `verify-offsite` needs the bucket to **list versions** with the read key (it fails *read key lists versions* otherwise) and reads the lock's mode and date from the uploaded file (needs `readFileRetentions` on the read key; without it the line is *manual*: check the file's retention in the console) | The bucket's settings | |
+| 7 | The lifecycle rule | `daysFromUploadingToHiding: 14`, `daysFromHidingToDeleting: 1`, `daysFromStartingToCancelingUnfinishedLargeFiles: 2` (this document, *Keys and Object Lock*). The script cannot read lifecycle rules: the owner looks at them by hand | The bucket's settings | |
+| 8 | The upload key | An application key **restricted to this bucket (and the prefix)** with the capability **`writeFiles` only**. This document lists no other capability for it; whether the S3-compatible `PutObject` also needs `listBuckets` is **not established anywhere in the repository**: the `verify-offsite` run is what answers it, and anything added is the least needed and is written down. **Not** `deleteFiles`, `writeFileRetentions`, `bypassGovernance`, `writeBuckets`, any `*Keys`, `readFiles` or `listFiles`. On the server only | `OFFSITE_S3_ACCESS_KEY_ID`, `OFFSITE_S3_SECRET_ACCESS_KEY` | |
+| 9 | The read key | A **separate** application key, same bucket and prefix, **`listFiles` and `readFiles`** (and `readFileRetentions` to see the lock). Not `deleteFiles` or any write capability. On the restore machine (and the test machine for `verify-offsite`); **never on the server** | `OFFSITE_S3_READ_ACCESS_KEY_ID`, `OFFSITE_S3_READ_SECRET_ACCESS_KEY` | |
+| 10 | The prefix | A prefix of its own for the test, such as `verify/` (what it uploads stays locked until the retention ends and cannot be removed before then), kept apart from the real prefix (`mysenam/` by default) | `OFFSITE_S3_PREFIX` | |
+| 11 | The encryption key pair | See *The key pairs*, below. Required for a bucket abroad | `OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE` on the server; `OFFSITE_ENCRYPTION_PRIVATE_KEY_FILE` on the restore and test machines only | |
+| 12 | The signing key pair (optional but documented) | See below | `OFFSITE_SIGNING_KEY_FILE` on the server; `OFFSITE_SIGNING_PUBLIC_KEY_FILE` on the restore machine | |
+| 13 | The data-location declaration | The country the bucket's **region** keeps data in, as a two-letter code (`US` for US West). It is checked against the endpoint, and a mismatch pauses copies | `OFFSITE_DATA_LOCATION` | |
+| 14 | The transfer approval | The same country code, **only after** the safeguards of 2 are done and recorded and the lawyer has answered the open points. It is the operator's statement that they are, so it is an owner's decision with a name and a date, not a setting to try (decided by ____ on ____). Until it and encryption are set, copies are paused and the Backups panel says why | `OFFSITE_TRANSFER_APPROVED` | |
+| 15 | The retention decision | Mode and days. The documents' choice is governance mode, 14 days (a longer period roughly doubles what is stored; compliance mode cannot be shortened even by the account owner). The privacy notice must say how long copies are kept (about 15 days is what the documents assume), and the lawyer's retention answers apply ([legal packet](legal-review-packet-2026-11-08.md), L7 and L9). Decided: mode ____ days ____ by ____ on ____ | The bucket's default retention; the privacy notice | |
+
+Where each setting lives is the table at the head of *Off-site copies*. All of them go in the environment's secret store, never in
+a committed file, a chat or the command line.
+
+### The key pairs
+
+The commands are the documented ones (*Encryption* and *Signed manifests* above). Run them on a trusted machine that is **not**
+the server, and only when the owner says so.
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out offsite-private.pem
+openssl pkey -in offsite-private.pem -pubout -out offsite-public.pem
+
+openssl genpkey -algorithm ed25519 -out offsite-signing.pem
+openssl pkey -in offsite-signing.pem -pubout -out offsite-signing-public.pem
+```
+
+- **Goes to the server:** `offsite-public.pem` (encrypts) and `offsite-signing.pem` (signs), as files readable only by the app.
+  **Goes to the restore machine:** `offsite-private.pem` (decrypts) and `offsite-signing-public.pem` (checks).
+- **The private encryption key is the one that cannot be lost: without it no encrypted copy can be read.** Keep it in two places,
+  neither of them the server, Git, a chat, an application log or the production environment: an organisation password-manager
+  entry readable by the people who restore, and an offline copy (an encrypted USB key or a printout) in a different place. It is
+  not kept in the backup bucket either: a key stored beside the ciphertext it opens protects nothing (the documents say "off the
+  server, off Git"; the bucket follows from why).
+- **Who holds the recovery copies:** password-manager entry ____; offline copy ____, kept at ____. A second person who can find
+  both: ____.
+- **Prove it each quarter** by fetching and decrypting a set ([recovery keys](#recovery-keys)); a key never used is not known to
+  work.
+- For the drill, the documents say to use **test** encryption and signing keys; the owner decides whether the production pair is
+  made now or after the drill. Either way the private key leaves no trace on the server.
+- `MYSENAM_SECRET` (or `secret.key` in the data folder) is **not** in any backup and must also be kept somewhere else safe, or every
+  venue reconnects its gateway after a restore.
+
+### The two commands
+
+Run on a test machine, not the production server, with every `OFFSITE_*` variable for both keys set in the environment.
+
+| Command | What it does | What it proves | What it does **not** prove |
+| ------- | ------------ | -------------- | -------------------------- |
+| `npm run verify-offsite` | Sends **nothing** and contacts nothing. Prints the destination, what the endpoint names (provider, region, country), whether the transfer is allowed by the declaration, approval and encryption, and the prefix note | That the settings are consistent with each other: declared country against the endpoint, and the transfer not paused | That the bucket exists, that either key works, or anything about the provider |
+| `npm run verify-offsite -- --go --size-mb 200 --report verify.json` | Backs up a **fresh, empty database of its own**, made in memory (never `DATABASE_URL`, no customer data, no photos), uploads it encrypted and signed with the upload key under the prefix, tries what the upload key and the read key must be refused (read, list, list versions, delete, delete a version, change retention with a governance bypass, delete with the read key), reads the lock, uploads a second time under the same name and checks the first is restored and the rewrite reported, fetches with the read key, decrypts, checks the manifest, restores in an isolated drill, uploads a file in parts, and times 200 MB up and back | That the keys do what they should and no more, that Object Lock and versions behave as documented on this bucket, that a set round-trips and restores in a drill, and a first measure of speed | That a **real** set is covered: the database is empty and there are **no photos**, so a photos archive is not exercised; the lifecycle rules, encryption at rest and the keys' capabilities in the console (it prints these as *manual*: the owner checks them by hand); that the nightly job on the production server runs, its alert fires, or the production key files are in place; recovery time of a real server; that the production data can be recovered |
+
+It exits non-zero if anything failed; a clean exit means "no refusal missing and nothing failed", with the *manual* lines still to
+do. `node scripts/verify-integrations.mjs b2` runs the same `--go` (without the size test) once all of `OFFSITE_S3_ENDPOINT`,
+`OFFSITE_S3_BUCKET`, both key pairs, both encryption key files and `OFFSITE_DATA_LOCATION` are set, and writes
+`artifacts/integrations/b2-offsite-<time>.json`; with any of them missing it reports BLOCKED and names them. What it uploads stays
+locked until the retention ends: spend only within an amount the owner has approved, and remove nothing that carries another
+deployment's label.
+
+### What the code backs up, and what it does not
+
+| Item | In the backup? | How |
+| ---- | -------------- | --- |
+| The database: bookings, claims, the credit ledger, receipts, online payments, passes and memberships, users, venues, the activity log, supporting documents (the `approval_documents` table holds their bytes) and the rows that point at photos (`venue_photos`) | **Yes** | A `pg_dump` custom-format snapshot, read back before it is kept (`pg_restore --list`); copied off-site encrypted, with a manifest of each part's SHA-256 |
+| Venue photos kept on the server's disk (no `PHOTOS_S3_*` bucket) | **Yes** | A companion `*.photos.tar.gz` archive beside the snapshot, read back; if it cannot be made the backup fails as a whole. Copied off-site first, then the database, then the manifest. Only when there is at least one photo on disk is an archive made |
+| Venue photos kept in a `PHOTOS_S3_*` bucket | **No**: only the rows that name them | The bucket is the provider's to keep: turn on its versioning or the provider's own backups. A restore of the database brings back the references, not the pictures |
+| Uploaded supporting documents | **Yes**, as part of the database | There is no separate document store: the bytes are in `approval_documents` |
+| The key that opens venues' stored payment keys (`MYSENAM_SECRET`, or `secret.key` in the data folder) | **No, deliberately** | Kept somewhere else safe; without it a restored install asks each venue to enter its gateway keys again. The drill reports how many payment keys the install's secret can open |
+| Environment variables and secrets: the SES, Billplz, Backblaze and other keys, `MYSENAM_*` settings | **No** | The owner's secret store |
+| The encryption and signing private keys | **No**, by design | Kept as above |
+| The erasure ledger file beside the backups | **Not in the set**: its entries are copied off-site separately, in signed, encrypted segments | [The erasure ledger off-site](#the-erasure-ledger-off-site); a restore reads them and the app will not serve until they are applied or acknowledged |
+| The application itself, its container image, the proxy and its certificates, DNS, the operating system, the malware scanner's signatures | **No** | Rebuilt from the repository and the deployment notes |
+| A database on another volume or server | The dump is taken through `DATABASE_URL`, so the **database** is covered wherever it lives; its volume and the host's own protection are not | |
+| A state between two nightly backups | **No** | Recovery point up to 24 hours; no point-in-time recovery is set up |
+
+### The isolated restore drill
+
+Never restore into or over the production database, and never copy a production database into staging or acceptance: those hold
+synthetic data only. For the pilot's drill use the synthetic set `verify-offsite` uploads, and, for the comparisons in the second
+table below, a **staging install holding synthetic data** with known bookings, a customer's credit, a pass, a membership and a
+photo, backed up and copied off-site by the ordinary job. Whether the owner also wants a drill of a real production set, on an
+isolated machine, later, is a separate decision: ____.
+
+1. On a machine that is not the server, set the endpoint, bucket, prefix and the **read** key, the private encryption key file
+   and the signing public key file, and `MYSENAM_SECRET` or `secret.key` from where it is kept, in the environment.
+2. `npm run fetch-backup -- --list` (newest last; whole or not; encrypted; written again after upload?), then
+   `npm run fetch-backup -- <set name> --to <folder>`: downloads, decrypts and checks every part against the manifest.
+3. Point `DATABASE_URL` at an isolated Postgres server and run `npm run restore -- <folder>/<set name> --drill`: it must print
+   *Drill passed*, with the counts you expect and `unreadable 0` payment keys, and it prints its own time.
+4. Start the application against the restored database (the drill drops its database afterwards; a real recovery uses `--force` on
+   a new server with the app stopped, and exits 3 until the erasure ledger is acknowledged: [after a restore](#after-a-restore))
+   and run the checks below.
+
+Write the four timings down. No recovery target is claimed until they have been measured; the only figures in this document are
+the benchmark's, on a test machine ([recovery point and recovery time](#recovery-point-and-recovery-time)).
+
+| Stage | What is timed | Started | Ended | Duration | Who | Notes |
+| ----- | ------------- | ------- | ----- | -------- | --- | ----- |
+| Acquire | From the decision to recover until a machine has the read key, the private encryption key, the signing public key and the install secret in hand (the password manager, the offline copy) | | | | | |
+| Download | `fetch-backup`: download, decrypt, check against the manifest | | | | | |
+| Restore | `restore --drill` (or `--force` on a new server): the time it prints | | | | | |
+| Application validation | Start the app on the restored database; the checks below; today's bookings visible | | | | | |
+
+| Consistency check | Source (the staging install, before the backup) | Restored | Match? |
+| ----------------- | ----------------------------------------------- | -------- | ------ |
+| Bookings (the drill compares them with the manifest) | | | |
+| Claims, venues, courts, users, receipts, online payments (counted by the drill) | | | |
+| Each customer's credit balance (the drill does not total balances: compare the dashboard or the ledger by hand) | | | |
+| Passes (unspent hours) and memberships (count, validity) | | | |
+| Uploaded-object references: venue photos in the database against photos unpacked (the drill compares the unpacked count with the manifest's); a photo in a `PHOTOS_S3_*` bucket is **not** restored | | | |
+| Supporting documents (`approval_documents`) present | | | |
+| Venue payment keys readable with the install's secret (`unreadable 0`) | | | |
+| Erasure ledger replayed or acknowledged | | | |
+| The application starts and serves; *Booking integrity check* finds nothing | | | |
+
+A drill on a test machine does not prove that production can be recovered. A failed backup raising an owner alert is checked by
+stopping the upload key's access for one run on a test install, not on production
+([provider verification](pilot-provider-verification.md#2-backblaze-b2-backup-and-restore-mandatory-before-real-data)).
