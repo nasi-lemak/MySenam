@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { dataDirectory, databaseTarget, getDb } from "./db.ts";
+import { diskRefusal } from "./disk-health.ts";
 import { isoOffset, region } from "./region.ts";
 
 const run = promisify(execFile);
@@ -335,13 +336,17 @@ export function pruneBackups(keep = DEFAULT_KEEP, dir = backupDir()): string[] {
 
 export type BackupResult =
   | { ok: true; file: BackupFile; bookings: number; pruned: string[]; photos: { file: string | null; count: number }; manifest: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; /** Refused before starting because the disk is at or past the block percentage (lib/disk-health.ts). */ noSpace?: true };
 
-/** Take a snapshot, check it, and retire the oldest. */
+/** Take a snapshot, check it, and retire the oldest. A disk at or past MYSENAM_DISK_BLOCK_PERCENT refuses it before anything is written. */
 export async function createBackup(opts: { dir?: string; keep?: number } = {}): Promise<BackupResult> {
   const dir = opts.dir ?? backupDir();
   const keep = opts.keep ?? Number(process.env.MYSENAM_BACKUP_KEEP ?? DEFAULT_KEEP);
   const target = databaseTarget();
+
+  // A backup writes a copy of everything: on a disk this full it would only make things worse. Not a success, and never counted as one.
+  const noRoom = await diskRefusal(dir);
+  if (noRoom) return { ok: false, error: noRoom.message, noSpace: true };
 
   try {
     fs.mkdirSync(dir, { recursive: true });

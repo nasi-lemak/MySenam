@@ -111,6 +111,47 @@ Chat channel, which still arrives when email is what broke. The owner's
 dashboard shows *System health* while anything is outstanding, with the
 latest detail and a *Dealt with* button.
 
+## Disk space
+
+The Droplet holds Postgres, the backups and the uploaded documents, so a full disk is an outage: the database stops
+writing, and bookings and payments with it. `src/lib/disk-health.ts` watches the volume that holds the data directory
+(`MYSENAM_DATA_DIR`, where `photos/`, the key file and, unless `MYSENAM_BACKUP_DIR` says otherwise, the backups are) with the
+platform's own `statfs` answer. A database on another volume (a managed database, a separate Postgres disk) is not seen by it:
+that volume is its provider's to watch, or the data directory's variable should name the one that matters.
+
+| Used | State | What happens |
+| ---- | ----- | ------------ |
+| below `MYSENAM_DISK_WARN_PERCENT` (80) | `ok` | nothing; any disk alert clears |
+| from 80 | `warn` | `disk:warn`, *The disk holding MySenam's data is filling up* |
+| from `MYSENAM_DISK_CRITICAL_PERCENT` (90) | `critical` | `disk:critical`, *…is nearly full* |
+| from `MYSENAM_DISK_BLOCK_PERCENT` (95) | `full` | `disk:full`, and new backups are refused (below) |
+
+Used is as `df` reports it (used over used plus what an ordinary process may still use), so space kept back for root does not
+hide a full disk. The three numbers must each be above 0 and at most 100 and increase in that order; a set that does not is
+replaced, whole, by 80/90/95, and the system answer's `disk.thresholds.problem` says why (the server log says it once).
+Where the platform cannot answer, the state is `unknown`: nothing is raised, what stands is left alone, and a backup is not
+held back (not knowing is no reason to stop one).
+
+- **Who looks, and when.** The scheduler's short unit, at most every 15 minutes, on whichever instance holds the lease. Each
+  state is one alert through the usual path (`raiseAlert`: told once, again after six hours with the count, to the owners by
+  email and on `MYSENAM_ALERT_WEBHOOK`); only the current state's alert stands, and all clear when usage falls under the
+  warning. An alert says the volume's percentage and free space and never a path.
+- **The owner's view.** `GET /api/admin/system` carries `disk`: `state`, `usedPercent`, `freeBytes`, `totalBytes` and the
+  `thresholds` in force (`valid`, `problem`).
+- **At the block percentage.** A backup is refused before anything is written (`createBackup` returns a failure, not a success;
+  the next scheduled attempt tries again): the scheduler raises `backup:no-space`, which clears when a backup is taken, and
+  `npm run backup`, the backup button and the restore script's safety copy say the same in their own answer. The volume asked is
+  the one the backup is written to. An off-site copy that would write an encrypted scratch copy first
+  (`OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE`) is refused the same way, if the temporary folder's volume is at the block percentage:
+  it is recorded as a failed copy (the `offsite` alert, the last good copy still the last good copy). A copy that is streamed as
+  it is writes nothing locally and is not held back. Bookings, payments and everything else the app does are never blocked:
+  the point is to keep the room that is left for them.
+- **What to do.** Free space or enlarge the disk: old snapshots beyond `MYSENAM_BACKUP_KEEP`, uploaded documents and photos
+  that should be in a bucket (`PHOTOS_S3_*`), logs, Docker images. At `full` there is no new backup until it is done, so the
+  newest copy ages toward the recovery-point target (`backup-stale`, [backups](backups.md#backup-health)). Nothing is deleted by
+  the app. The checks of a release (`scripts/verify.mjs`) read the same idea of the machine they run on
+  ([testing](../development/testing.md)).
+
 ## Errors
 
 Each error is filed under its kind (`lib/error-log.ts`), with a count, where it
