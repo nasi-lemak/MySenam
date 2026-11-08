@@ -74,6 +74,8 @@ risk; everything else stays off. A sandbox result does not prove all production 
 5. **Disabled**: youth messaging, unstaffed access, Stripe auto-renewal, e-invoicing,
    WhatsApp, Xero, voucher expiry and desk redemption changes.
 6. **Backups**: the first restore drill passes on an isolated machine before real data.
+7. **Legal and tax review**: the questions for a Malaysian lawyer and the venue's tax adviser, every one NOT REVIEWED, are in the [legal and tax review packet](legal-review-packet-2026-11-08.md).
+8. **Daily operation**: the named person's checklist, incident procedures and escalation table are in [pilot daily operations](pilot-daily-operations.md); the monitoring that must sit outside the app is in [monitoring](monitoring.md#external-monitoring-for-the-pilot).
 
 ## Pilot acceptance criteria, as they stand
 

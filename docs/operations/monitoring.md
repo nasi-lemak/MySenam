@@ -144,3 +144,56 @@ no SDK, given up on after five seconds.
 `503` when it has not ticked for ten minutes. Point an uptime monitor
 (UptimeRobot, Better Stack, the host's own) at `/api/health` and it covers
 both the app being down and the scheduler being stuck.
+
+## External monitoring for the pilot
+
+*Added 8 November 2026 for the restricted pilot ([pilot readiness](pilot-readiness-2026-11-07.md)). Everything above says what
+the app tells its owners; this says what it cannot, and the minimum that has to sit outside it. **Every external service
+named here is NOT CONFIGURED**: nothing is subscribed, priced or set up, and nothing in this section was checked against a
+real service.*
+
+**What the app can and cannot tell.** An alert is written by the running app into its own database
+(`raiseAlert`, `src/lib/alerts.ts`), then sent by email through the outbox and, with `MYSENAM_ALERT_WEBHOOK` set, to a chat
+channel. So **an app that is offline cannot report itself**; nor can one whose database is unreachable (the alert is stored
+first), whose scheduler has stopped (it cannot email about itself, above), or whose email is the thing that broke (the email
+copy waits in the outbox; the chat copy still arrives). Something outside the server has to ask. The only question the app
+answers for outsiders is `GET /api/health`: `200` while the database answers a query and, where the scheduler is on, it has
+ticked in the last ten minutes; otherwise `503`, with no detail. For ten minutes after a restart it reports the scheduler as
+alive whatever has happened since.
+
+What raises each, today, and where it goes. *Built* means the code raises it; it does **not** mean it was ever seen live.
+
+| Watch | What raises it today | Built? | Where it goes | Who acts, and what |
+| ----- | -------------------- | ------ | ------------- | ------------------ |
+| The app answers (external HTTP uptime on `/api/health`) | The endpoint answers `503` or does not answer | Endpoint built; **NOT built: nothing polls it, external service needed** | The monitor's own channel | The named operator, then the technical contact: [the application is unavailable](pilot-daily-operations.md#the-application-is-unavailable) |
+| Database connectivity | `/api/health` runs a query and answers `503` if it fails | Endpoint built; **external service needed** (the app cannot raise an alert it cannot store) | The same monitor | Technical contact: [the database fails](incident-response.md#the-database-fails-or-data-is-lost) |
+| Scheduler heartbeat | A stamp each tick; `/api/health` answers `503` after ten minutes without one; the owner's *System health* shows a line | Built (the line only while somebody opens the dashboard); **external service needed** for anything unattended | The monitor; the dashboard | Operator: [the application is unavailable](pilot-daily-operations.md#the-application-is-unavailable); no backups, messages or released holds meanwhile |
+| TLS certificate expiry | Nothing reads the certificate | **NOT built, external service needed** (no record that a renewal on the pilot's host was ever checked) | The external service, or a calendar reminder | Technical contact renews or repairs the proxy ([behind a proxy](deployment.md#behind-a-proxy)) |
+| Backup failure | `backup`, `offsite`, `scheduler:scheduled-backup-failed`, `backup-stale` (hourly and after each backup), `offsite-near-limit`, and the erasure-ledger alerts; the *Backups* panel's red line | Built; never run against a real bucket ([provider verification](pilot-provider-verification.md)) | Owner email, chat channel, *System health* | Operator: [a backup fails](pilot-daily-operations.md#a-backup-fails); [backups](backups.md#backup-health) |
+| Outbox failure | `messages` (five failed in an hour, none sent), `email:failing`, `email:backlog`, `config:email`, `messages-aged-out`, `outbox-step:<name>`, `scheduler:sending-messages-failed`, `auth-mail-ceiling`, `auth-mail-expired` | Built; delivery never verified live. Bounces and complaints are **NOT built** (not read back) | Owner email (itself delayed if email is the fault), chat channel, *System health* | Operator: [email delivery fails](pilot-daily-operations.md#email-delivery-fails); the owner reads the SES reputation dashboard weekly |
+| Payment mismatch | A held or mismatched payment is a *Payments to check* row, a red line in *Needs attention* and an activity-log row; the payer is emailed where the address was proved | **NOT built as an alert**: no owner email or chat message exists for it | Lists the operator must open | Operator, daily: *Payments to check* |
+| Refunds owed | The daily integrity check raises `integrity` for a refund asked and unanswered for an hour, owed over a week, or failed at the gateway; the venue's staff are emailed once a day how many wait; *Needs attention* shows overdue ones | Built for online refunds. The counter *Owed back at the counter* list has **no alert and no email: NOT built** | Owner email, chat channel, *System health*; venue staff email | Operator, daily: *Refunds owed*, *Owed back at the counter* |
+| Disk space | The disk alert (`MYSENAM_DISK_*`), being built in parallel and **not part of this baseline** | **NOT built here**; until it is merged and checked, treat as not built | Per that change | Technical contact; a full disk stops backups, photos and the database (the [app is down](incident-response.md#the-app-is-down)) |
+
+**Recommended minimum, not subscribed.** The owner decides; nothing here is bought by this change.
+
+1. **One external HTTP check on `/api/health`**, from a service outside the server, alerting at least two people by two
+   channels. It covers the app, the database and the scheduler in one. Interval and failure count: **____** (the repository
+   fixes only the scheduler's ten minutes). The services named above (UptimeRobot, Better Stack) are only examples, and **their free
+   tiers and limits have not been checked**; use one that is free or already paid for, and check what it offers before relying on it.
+2. **A certificate-expiry check or a dated reminder**, from the same service if it offers one.
+3. **`MYSENAM_ALERT_WEBHOOK` pointed at a chat channel the operator reads on a phone**, so alerts arrive when email is what
+   broke ([configuration](../development/configuration.md)). NOT CONFIGURED.
+4. **The hosting provider's own disk, memory and CPU alerts**, until the disk alert is built and verified. The host is not
+   yet decided ([known limitations](../roadmap/known-limitations.md#blockers-for-any-launch)).
+5. **A weekly human look** at the SES reputation dashboard and the *Backups* panel, since bounces and a real bucket's state
+   are not read back.
+
+| External service or setting | Status |
+| --------------------------- | ------ |
+| Uptime monitor on `/api/health` | NOT CONFIGURED |
+| TLS certificate expiry check | NOT CONFIGURED |
+| `MYSENAM_ALERT_WEBHOOK` chat channel | NOT CONFIGURED |
+| `SENTRY_DSN` error tracker | NOT CONFIGURED |
+| Host-level disk, memory and CPU alerts | NOT CONFIGURED |
+| SES bounce and complaint watching | NOT CONFIGURED |
