@@ -745,15 +745,15 @@ describe("what a mock does not prove, and the old rows", () => {
     const online = await book();
     await cancelBooking(online.booking.code, online.phone);
 
-    const rows = (await getDb().prepare(script).all()) as { code: string; amount: number; paid_via: string | null; credit_note: string; venue: string }[];
-    const codes = rows.map((r) => r.code);
+    const rows = (await getDb().prepare(script).all()) as { booking_code: string; amount_possibly_owed: number; paid_with: string | null; credit_note: string; venue: string }[];
+    const codes = rows.map((r) => r.booking_code);
     expect(codes).toContain(legacy.booking.code);
     expect(codes).not.toContain(handed.booking.code);
     expect(codes).not.toContain(owedNow.booking.code);
     expect(codes).not.toContain(byStaff.booking.code);
     expect(codes).not.toContain(online.booking.code);
-    expect(rows.find((r) => r.code === legacy.booking.code)).toMatchObject({ paid_via: "cash", venue: "Cancel Hall" });
-    expect(Number(rows.find((r) => r.code === legacy.booking.code)!.amount)).toBe(20);
+    expect(rows.find((r) => r.booking_code === legacy.booking.code)).toMatchObject({ paid_with: "cash", venue: "Cancel Hall" });
+    expect(Number(rows.find((r) => r.booking_code === legacy.booking.code)!.amount_possibly_owed)).toBe(20);
     // Read only: it changed nothing.
     expect(await owedRows(legacy.booking.id)).toEqual([]);
   });

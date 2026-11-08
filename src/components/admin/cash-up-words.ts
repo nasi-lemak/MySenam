@@ -29,3 +29,21 @@ export function methodText(t: StaffT, method: string | null): string {
   if (method === "counter") return t("p8b.via.counter");
   return (VIA as readonly string[]).includes(method) ? t(`c.via.${method as (typeof VIA)[number]}`) : method;
 }
+
+/** Why a refund is owed back (the cause the list of money owed back records), in the staff dictionary, for the cash-up's refunds block. */
+export const OWED_CAUSE_PHRASES: Record<string, StaffPhrase> = {
+  closure: "r9e.owed.cause.closure",
+  outage: "r9e.owed.cause.outage",
+  rain: "r9e.owed.cause.rain",
+  api: "r9e.owed.cause.api",
+  class: "r9e.owed.cause.class",
+  test: "r10a.owed.cause.test",
+  lesson_moved: "clsb.s.owed.cause.lessonMoved",
+  moved_cheaper: "p67.owed.cause.movedCheaper",
+  customer_cancelled: "rf74.owed.cause.customer",
+  place_withdrawn: "rf74.owed.cause.place",
+  tournament_cancelled: "fx10.fee.cause.cancelled",
+  before_draw: "fx10.fee.cause.beforeDraw",
+  pass_refunded: "cu75.cause.passRefunded",
+  membership_refunded: "cu75.cause.membershipRefunded",
+};

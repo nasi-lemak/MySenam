@@ -39,6 +39,8 @@
 - **What the till shows.** The credit note counts in the cash-up on the day it was written, under the method it was paid by (ADR 0068); the payout is in the list of money handed back on the day it was handed over. They
   agree in amount and method when the money goes back the way it was paid; on another day they sit on two days, and an alternative method puts the cash-up and the payout under different methods. This follows from keeping
   the credit note as it was (the brief) and is **recorded as a limitation, with the alternative below, for the owner**.
+  **Superseded for the till by [ADR 0075](0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)**: the credit note stays in the journal as written, and the
+  expected till is the cash received less the refunds actually handed over, on the day and by the method they were, with refunds still owed shown apart.
 
 ## Decision 3: the customer is told what is true
 
