@@ -466,6 +466,13 @@ const en = {
   "srv.email.failing.detail": "{failed} of {total} messages tried in the last hour failed. The last error: {error}.\n\nSign-in and sign-up emails are queued and tried again while their links are valid; check the provider's status, the credentials and the sender identity.",
   "srv.email.backlog.alert": "Email has been waiting to be sent for a long time",
   "srv.email.backlog.detail": "The oldest email still waiting was written {minutes} minutes ago ({queued} waiting). Check that the email provider is working and that the scheduler is running.",
+  "srv.disk.warn.alert": "The disk holding MySenam's data is filling up",
+  "srv.disk.critical.alert": "The disk holding MySenam's data is nearly full",
+  "srv.disk.full.alert": "The disk holding MySenam's data is full enough that backups are being refused",
+  "srv.disk.detail": "{used}% of the disk holding MySenam's data is used ({free} GB free). Warning at {warn}%, critical at {critical}%, backups refused at {block}%.\n\nFree some space or enlarge the disk: old backups, uploaded documents and logs are the usual cause. A full disk stops the database writing, and with it bookings and payments.",
+  "srv.disk.fullDetail": "{used}% of the disk holding MySenam's data is used ({free} GB free), at or past the {block}% limit. New backups and encrypted off-site copies are refused until it falls, so that they do not fill it further. Bookings and payments are not blocked, but they stop if the disk fills.\n\nFree some space or enlarge the disk now.",
+  "srv.backup.noSpace.alert": "No backup was taken: the disk is too full",
+  "srv.backup.noSpace.detail": "{error}\n\nNo backup was made and none is counted as made: the newest copy is as old as it was. Bookings and payments carry on.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -926,6 +933,13 @@ const ms: Record<keyof typeof en, string> = {
   "srv.email.failing.detail": "{failed} daripada {total} mesej yang dicuba dalam sejam lalu gagal. Ralat terakhir: {error}.\n\nE-mel log masuk dan pendaftaran dibarisgilir dan dicuba semula selagi pautannya sah; semak status pembekal, kelayakan dan identiti penghantar.",
   "srv.email.backlog.alert": "E-mel telah menunggu lama untuk dihantar",
   "srv.email.backlog.detail": "E-mel paling lama yang masih menunggu ditulis {minutes} minit lalu ({queued} menunggu). Semak bahawa pembekal e-mel berfungsi dan penjadual sedang berjalan.",
+  "srv.disk.warn.alert": "Cakera yang menyimpan data MySenam semakin penuh",
+  "srv.disk.critical.alert": "Cakera yang menyimpan data MySenam hampir penuh",
+  "srv.disk.full.alert": "Cakera yang menyimpan data MySenam cukup penuh sehingga sandaran ditolak",
+  "srv.disk.detail": "{used}% cakera yang menyimpan data MySenam telah digunakan ({free} GB kosong). Amaran pada {warn}%, kritikal pada {critical}%, sandaran ditolak pada {block}%.\n\nKosongkan ruang atau besarkan cakera: sandaran lama, dokumen yang dimuat naik dan log biasanya puncanya. Cakera penuh menghentikan pangkalan data menulis, dan bersamanya tempahan dan pembayaran.",
+  "srv.disk.fullDetail": "{used}% cakera yang menyimpan data MySenam telah digunakan ({free} GB kosong), pada atau melepasi had {block}%. Sandaran baharu dan salinan luar tapak yang disulitkan ditolak sehingga ia turun, supaya tidak memenuhkannya lagi. Tempahan dan pembayaran tidak disekat, tetapi akan terhenti jika cakera penuh.\n\nKosongkan ruang atau besarkan cakera sekarang.",
+  "srv.backup.noSpace.alert": "Tiada sandaran diambil: cakera terlalu penuh",
+  "srv.backup.noSpace.detail": "{error}\n\nTiada sandaran dibuat dan tiada yang dikira telah dibuat: salinan terbaharu masih sama lama. Tempahan dan pembayaran diteruskan.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1386,6 +1400,13 @@ const zh: Record<keyof typeof en, string> = {
   "srv.email.failing.detail": "过去一小时尝试的 {total} 条消息中有 {failed} 条失败。最近的错误：{error}。\n\n登录和注册电邮会排队，并在链接有效期内重试；请检查服务商状态、凭据和发件人身份。",
   "srv.email.backlog.alert": "电邮已等待发送很长时间",
   "srv.email.backlog.detail": "仍在等待的最早一封电邮写于 {minutes} 分钟前（共 {queued} 封在等待）。请检查电邮服务商是否正常，以及调度器是否在运行。",
+  "srv.disk.warn.alert": "存放 MySenam 数据的磁盘正在变满",
+  "srv.disk.critical.alert": "存放 MySenam 数据的磁盘几乎已满",
+  "srv.disk.full.alert": "存放 MySenam 数据的磁盘已满到拒绝备份的程度",
+  "srv.disk.detail": "存放 MySenam 数据的磁盘已使用 {used}%（剩余 {free} GB）。{warn}% 时警告，{critical}% 时严重，{block}% 时拒绝备份。\n\n请腾出空间或扩大磁盘：旧备份、上传的文件和日志通常是原因。磁盘写满会使数据库无法写入，预订和付款也随之停止。",
+  "srv.disk.fullDetail": "存放 MySenam 数据的磁盘已使用 {used}%（剩余 {free} GB），已达到或超过 {block}% 的上限。在其降下来之前，新的备份和加密的异地副本会被拒绝，以免把它进一步填满。预订和付款不会被阻止，但磁盘写满后会停止。\n\n请立即腾出空间或扩大磁盘。",
+  "srv.backup.noSpace.alert": "未能备份：磁盘太满",
+  "srv.backup.noSpace.detail": "{error}\n\n没有进行备份，也不会算作已备份：最新的副本仍是原来那份。预订和付款照常进行。",
 };
 
 const area = { en, ms, zh };

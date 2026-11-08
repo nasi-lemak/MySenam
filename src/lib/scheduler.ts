@@ -25,9 +25,10 @@ import { passOnExpiredOffers } from "./store";
 import { holdStrandedBookings, releaseExpiredHolds } from "./holds";
 import { reconcileRefunds, settlePendingRefunds, settleRefundClaims } from "./payments";
 import { closeDueEntries } from "./tournaments";
-import { checkMessages, heartbeat, raiseAlert } from "./alerts";
+import { checkMessages, clearAlert, heartbeat, raiseAlert } from "./alerts";
+import { checkDiskHealth } from "./disk-health";
 import { region } from "./region";
-import { said, type ServerPhrase } from "./staff-text";
+import { englishOf, said, type ServerPhrase } from "./staff-text";
 
 /** "Scheduled work failed: …", said in the staff language on the owner's dashboard. */
 const failed = (what: ServerPhrase) => said("srv.alert.failed", { what: said(what) });
@@ -95,6 +96,9 @@ export async function runScheduledWork(now = new Date(), only: "all" | "short" |
 async function runShortWork(now: Date, result: TickResult): Promise<void> {
   // Stamped first, so a scheduler that has stopped shows on /api/health.
   await heartbeat().catch(() => undefined);
+
+  // How full the disk holding the data is, at most every 15 minutes: owners told as it fills, cleared as it falls (lib/disk-health.ts). Never throws.
+  await checkDiskHealth();
 
   try {
     const drained = await tickOutbox();
@@ -409,8 +413,13 @@ async function runLongWork(now: Date, result: TickResult): Promise<void> {
       if (!taken.ok) {
         result.backup = { ok: false, error: taken.error };
         console.error(`[mysenam] scheduled backup failed: ${taken.error}`);
-        await raiseAlert("backup", said("srv.alert.backupFailed"), taken.error);
+        // Refused for want of room (lib/disk-health.ts): its own alert, and a failure like any other, never a success.
+        if (taken.noSpace) {
+          const detail = said("srv.backup.noSpace.detail", { error: taken.error });
+          await raiseAlert("backup:no-space", said("srv.backup.noSpace.alert"), englishOf(detail), [detail]);
+        } else await raiseAlert("backup", said("srv.alert.backupFailed"), taken.error);
       } else {
+        await clearAlert("backup:no-space");
         const offsite = await copyOffsite(taken.file, taken.photos.file, taken.manifest);
         result.backup = {
           ok: true,

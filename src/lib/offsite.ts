@@ -7,6 +7,7 @@ import os from "os";
 import { getDb } from "./db.ts";
 import type { BackupFile } from "./backup";
 import { decryptFile, encryptFile, readKeyFile, signBytes, signatureValid } from "./backup-crypto.ts";
+import { diskRefusal } from "./disk-health.ts";
 import { region } from "./region.ts";
 import { englishOf, said, type StaffText } from "./staff-text.ts";
 
@@ -525,6 +526,10 @@ export async function copyOffsite(
   // Encrypted before it leaves, where a public key is given: the database and photos as `<name>.enc`; the
   // manifest (hashes and counts, no personal data) stays readable, marked so a restore knows to decrypt.
   const publicKey = readKeyFile(process.env.OFFSITE_ENCRYPTION_PUBLIC_KEY_FILE);
+  // Encrypting writes a sealed copy of the set to the scratch folder first: refused, as a failed copy (not a success), when that disk is
+  // at or past the block percentage (lib/disk-health.ts). A copy that is streamed as it is writes nothing here and goes on.
+  const noRoom = publicKey ? await diskRefusal(os.tmpdir()) : null;
+  if (noRoom) return await rememberCopy(backup, { ok: false, error: noRoom.message }, Boolean(manifest), false);
   const scratch = publicKey ? fs.mkdtempSync(path.join(os.tmpdir(), "mysenam-offsite-")) : null;
   let signScratch: string | null = null;
   try {

@@ -151,13 +151,46 @@ function hostInfo() {
   } catch {
     // not available on this platform
   }
+  const diskUsedPercent = diskUsedPercentOf(ROOT);
   return {
     platform: `${os.platform()} ${os.release()}`,
     cpus: os.cpus().length,
     memoryGB: Math.round(os.totalmem() / 1e8) / 10,
     freeMemoryGB: Math.round(os.freemem() / 1e8) / 10,
     diskFreeGB,
+    diskUsedPercent,
   };
+}
+
+/**
+ * How full the disk holding `dir` is, as df says it (used over used plus what a normal process may still use), to one decimal; null where
+ * the platform cannot say. The same idea as lib/disk-health.ts (the app's own check), with the same two variables where both are set
+ * sensibly: warn at 80%, and at 95% the phases that write the most (the build, the browser tests, the acceptance scenarios' videos and
+ * traces) are BLOCKED, never run into a full disk (a restore child once crashed with a no-space error at about 99%).
+ */
+function diskUsedPercentOf(dir) {
+  try {
+    const s = fs.statfsSync(dir);
+    const used = Number(s.blocks) - Number(s.bfree);
+    const free = Number(s.bavail);
+    return Number(s.blocks) > 0 && used >= 0 && used + free > 0 ? Math.round((used / (used + free)) * 1000) / 10 : null;
+  } catch {
+    return null;
+  }
+}
+function diskLimits() {
+  const warn = Number(process.env.MYSENAM_DISK_WARN_PERCENT);
+  const block = Number(process.env.MYSENAM_DISK_BLOCK_PERCENT);
+  const sane = (n) => Number.isFinite(n) && n > 0 && n <= 100;
+  return sane(warn) && sane(block) && warn < block ? { warn, block } : { warn: 80, block: 95 };
+}
+/** True, with the phase noted as blocked, when the disk is at or past the block percentage. */
+function diskBlocks(phase) {
+  const used = diskUsedPercentOf(ROOT);
+  const { block } = diskLimits();
+  if (used === null || used < block) return false;
+  note(phase, "blocked", `the disk is ${used}% used, at or past the ${block}% limit; ${phase} writes build output, videos or traces and would fill it. Free some space and run it again`);
+  return true;
 }
 
 function writeReport() {
@@ -490,6 +523,7 @@ async function pgSuite(extra = []) {
 // ---------------------------------------------------------------- build and the browser
 /** The production build; for a release always made afresh, otherwise made again only when the source it was made from differs. */
 async function build() {
+  if (diskBlocks("build")) return false;
   const stamp = path.join(ROOT, ".next", "mysenam-source.json");
   if (!strict) {
     try {
@@ -508,7 +542,7 @@ async function build() {
   if (ok) fs.writeFileSync(stamp, JSON.stringify({ ...source, builtAt: new Date().toISOString() }, null, 2));
   return ok;
 }
-const e2e = () => testStep("browser tests (e2e)", ["--config", "vitest.e2e.config.mts"], { skips: strict ? "none" : "any" });
+const e2e = async () => (diskBlocks("browser tests (e2e)") ? false : testStep("browser tests (e2e)", ["--config", "vitest.e2e.config.mts"], { skips: strict ? "none" : "any" }));
 /**
  * "Accounts AG" (tests/uat/round7.uat.ts) invoices a booking made for the next hour of the day at the venue, and from 23:00
  * Malaysian time there is none. A release does not start the acceptance scenarios from 22:15 until just after midnight there:
@@ -533,13 +567,17 @@ const uat = async (scenario) => {
   if (waited) steps[steps.length - 1].waitedForMidnightSeconds = waited;
   return ok;
 };
-const uatSteps = (scenario) =>
-  testStep("acceptance scenarios (uat)", ["--config", "vitest.uat.config.mts", ...(!scenario ? [] : /^[a-z/._-]+$/.test(scenario) ? [scenario] : ["-t", scenario])], { skips: strict && !scenario ? "none" : "any" });
+const uatSteps = async (scenario) =>
+  diskBlocks("acceptance scenarios (uat)")
+    ? false
+    : testStep("acceptance scenarios (uat)", ["--config", "vitest.uat.config.mts", ...(!scenario ? [] : /^[a-z/._-]+$/.test(scenario) ? [scenario] : ["-t", scenario])], { skips: strict && !scenario ? "none" : "any" });
 
 // ---------------------------------------------------------------- preflight
 function preflight() {
   const h = hostInfo();
-  console.log(`Machine: ${h.cpus} CPUs, ${h.memoryGB} GB memory (${h.freeMemoryGB} GB free), ${h.diskFreeGB ?? "?"} GB disk free, Node ${process.version}`);
+  const { warn, block } = diskLimits();
+  console.log(`Machine: ${h.cpus} CPUs, ${h.memoryGB} GB memory (${h.freeMemoryGB} GB free), ${h.diskFreeGB ?? "?"} GB disk free (${h.diskUsedPercent ?? "?"}% used), Node ${process.version}`);
+  if (h.diskUsedPercent !== null && h.diskUsedPercent >= warn) console.log(`⚠ the disk is ${h.diskUsedPercent}% used (warning at ${warn}%): the build, browser tests and acceptance scenarios are BLOCKED at ${block}%`);
   if (h.memoryGB < 6) note("preflight", "blocked", `${h.memoryGB} GB of memory; the build and the suites need about 6`);
   else if (h.diskFreeGB !== null && h.diskFreeGB < 3) note("preflight", "blocked", `${h.diskFreeGB} GB of disk free; the acceptance scenarios keep videos and traces, about 3 GB are needed`);
   else return true;
@@ -572,8 +610,8 @@ try {
       await e2e();
       if (releaseGrade) await uat();
     } else {
-      note("browser tests (e2e)", "skipped", "the build failed");
-      if (releaseGrade) note("acceptance scenarios (uat)", "skipped", "the build failed");
+      note("browser tests (e2e)", "skipped", "the build did not pass");
+      if (releaseGrade) note("acceptance scenarios (uat)", "skipped", "the build did not pass");
     }
   }
 } catch (err) {

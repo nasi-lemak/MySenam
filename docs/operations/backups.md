@@ -99,6 +99,11 @@ or when off-site copies are set up but none has gone. It also alerts
 ([monitoring](monitoring.md)). Every failed or paused copy is written to the
 server log and raises the `offsite` alert as it happens.
 
+On a disk at or past `MYSENAM_DISK_BLOCK_PERCENT` (95) a backup is not started at all
+(`backup:no-space`, never reported as taken), and an off-site copy that must write an
+encrypted scratch copy first fails the same way
+([disk space](monitoring.md#disk-space)).
+
 ## Off-site copies
 
 Snapshots beside the database survive a bad deploy and a mistyped `DELETE`; they

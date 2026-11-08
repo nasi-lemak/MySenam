@@ -6,6 +6,7 @@ import { jsonObject } from "@/lib/api";
 import { claimsArchiveStatus } from "@/lib/claims-archive";
 import { checkProviderReachable } from "@/lib/email-config";
 import { emailHealth } from "@/lib/email-health";
+import { diskHealth } from "@/lib/disk-health";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,8 @@ export async function GET(req: NextRequest) {
     claimsArchive: await claimsArchiveStatus(),
     // Whether email is configured and verified, how the provider is doing, what waits, what was given up (security mail apart): lib/email-health.ts.
     email: await emailHealth(),
+    // How full the disk holding the data is, as `df` says it, and the thresholds in force (an unreadable answer is "unknown", never a guess): lib/disk-health.ts.
+    disk: await diskHealth(),
   });
 }
 
