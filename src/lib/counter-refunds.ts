@@ -591,6 +591,30 @@ export async function oweCounterToCustomer(bookingId: number, share: number, wit
 }
 
 /**
+ * In the transaction of staff taking one person off a booking paid at the counter (ADR 0077): the staff hand the money over as they do it, so
+ * it is written as the payout it is (who, how it was paid, on which credit note), as a staff cancellation's is (`settleCounter`), and the
+ * cash-up takes it out of the till on the day and by the method it was handed over (ADR 0075). The credit note is written as ever and is
+ * not touched. False where the booking was not paid at the counter (online, credit, a pass, an account): nothing was handed over.
+ */
+export async function handBackWithdrawnPlace(
+  bookingId: number,
+  w: { amount: number; creditNoteId: number; keptPercent: number | null },
+  staff: { id: number; name: string }
+): Promise<boolean> {
+  const counter = await counterMoney(bookingId);
+  if (!counter) return false;
+  const amount = roundMoney(w.amount);
+  if (amount <= 0) return false;
+  await getDb()
+    .prepare(
+      `INSERT INTO counter_payouts (venue_id, booking_id, credit_note_id, amount, via, kept_percent, admin_id, admin_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(counter.row.venue_id, bookingId, w.creditNoteId, amount, counter.via, w.keptPercent, staff.id, staff.name);
+  return true;
+}
+
+/**
  * What these bookings still owe their customer at the counter, as a customer is told it (one line, the sum): "the venue will return RM x at
  * the counter", never that it has been returned (ADR 0074). Empty where nothing paid at the counter is still owed.
  */

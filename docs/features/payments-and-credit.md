@@ -822,7 +822,14 @@ through the paths a cancellation uses, and nothing twice:
   person off, the money is written down as owed back at the counter, one row
   for the withdrawal (`place_withdrawn`, [ADR 0074](../architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md)),
   settled like any other ([owed back after a customer cancels](#owed-back-after-a-customer-cancels));
-  staff at the counter hand it over themselves as they take the person off.
+  staff at the counter hand it over themselves as they take the person off, and that is written as the payout it is
+  ([ADR 0077](../architecture/decisions/0077-staff-taking-a-person-off-at-the-counter-hand-the-money-over-then-and-it-is-written-as-the-payout-it-is.md)):
+  `counter_payouts`, on the withdrawal's credit note, by the member of staff and the method the booking was paid with (the same row a staff
+  cancellation writes), so the day's list of money handed back shows it and the cash-up takes it out of that till on that day. The credit note
+  names the member of staff (`POST /api/admin/bookings/withdraw` acts as them), so their own cash-up counts it. There is no *later* and no
+  *another way* for a staff withdrawal: nothing is written as owed, and money handed over otherwise is not something the system can reconcile
+  (the same as a staff cancellation). A booking not paid at the counter (credit, online, a pass, an account, not yet paid) writes no payout.
+  A withdrawal from before this change has its credit note and no payout, and is counted by the note as it always was; nothing is backfilled.
 - **A pass** spent for that place gives back its entries (whole entries,
   rounded down on a late withdrawal); one that paid for the booking as a
   whole gives back nothing for one person.
@@ -852,7 +859,7 @@ through the paths a cancellation uses, and nothing twice:
   a friend's share ([taking one person off a booking](booking.md#taking-one-person-off-a-booking)).
 
 Tested in `tests/place-withdrawals.test.ts`,
-`tests/place-withdrawals-money.test.ts` (deposits, accounts, splits) and,
+`tests/place-withdrawals-money.test.ts` (deposits, accounts, splits), `tests/staff-withdrawal-cash-up.test.ts` (a staff withdrawal in the cash-up: the payout, the member of staff's own till, DuitNow, across days, a later cancellation, a race) and,
 with a concession and a code on the booking,
 `tests/discount-stacking.test.ts`, on PGlite and Postgres, against a
 stand-in gateway for the online case.
@@ -1261,7 +1268,8 @@ who counted and who checked it.
   refunds actually handed over that day by the method used (`counter_payouts` by `paid_out_at`, and the settled counter fee, pass and membership refunds),
   plus the hire deposits' part. The credit note stays in the journal as written (its date, number, tax and the table above are the accountant's, unchanged);
   it is only not counted as cash leaving the till, and the sheet shows the amount put back (`refundNotes`) and the amount handed back (`handedBack`) so it
-  adds up. Every other credit note (a sale voided, a price adjusted, a place staff took off at the counter, a *mark unpaid*) is still a till movement.
+  adds up. A place staff take off at the counter writes its payout with its credit note ([ADR 0077](../architecture/decisions/0077-staff-taking-a-person-off-at-the-counter-hand-the-money-over-then-and-it-is-written-as-the-payout-it-is.md)),
+  so it is the same movement on the same day. Every other credit note (a sale voided, a price adjusted, a cheaper coach's difference, a *mark unpaid*, a withdrawal from before ADR 0077) is still a till movement.
   A refund paid by DuitNow and handed back in cash lowers the cash drawer, not the QR account. A refund settled as stored credit moves no cash. A payout from
   before payouts named their credit note is left to its credit note, so nothing leaves a till twice; an unrecorded method is in no till. A desk's own cash-up
   takes out the payouts it handed over (the customer's credit note names nobody, so none is put back there). Over the days a refund spans the total is unchanged;
@@ -1305,7 +1313,7 @@ who counted and who checked it.
   person's, on any day.
 - **Who took it** is known for what staff did from this change on: sales,
   payments marked, fees, voids, adjustments, invoices marked paid, and a
-  booking or series staff cancel, and a counter payment owed back after the
+  booking or series staff cancel, a person staff take off a booking, and a counter payment owed back after the
   venue cancelled, settled (`asStaff`, lib/acting-staff.ts). A credit note
   written outside a member of staff's request (a closed day's or an outage's
   online or credit refund, the scheduler or a customer's own cancellation)

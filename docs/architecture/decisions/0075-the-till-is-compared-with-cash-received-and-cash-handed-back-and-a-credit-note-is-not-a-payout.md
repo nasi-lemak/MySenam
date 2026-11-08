@@ -71,7 +71,7 @@ it), and the action for staff. It no longer selects the customer's name or phone
 - **Whether the credit note should be dated at the settlement for a customer's cancellation** (as the venue's own cancellations' are). Not done: it moves the tax document's date and changes what a customer's
   receipt shows. This decision makes it unnecessary for the till.
 - **Tax treatment of a credit note whose refund is not yet paid** is unchanged and is the adviser's.
-- **A person taken off a booking by staff at the counter writes no payout** (ADR 0074); its credit note therefore still lowers the till on its day, as before.
+- **A person taken off a booking by staff at the counter writes no payout** (ADR 0074); its credit note therefore still lowers the till on its day, as before. **Superseded by [ADR 0077](0077-staff-taking-a-person-off-at-the-counter-hand-the-money-over-then-and-it-is-written-as-the-payout-it-is.md)**: it now writes the payout, and its credit note names the member of staff.
 
 ## Alternatives considered
 

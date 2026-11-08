@@ -62,7 +62,7 @@
 - **Defer the credit note to the settling?** The venue's own cancellations write the credit note when staff settle it, so the cash-up and the payouts always agree; a customer's keeps today's timing, as the brief says.
   Deferring would make the cash-up exact and attribute the note to the member of staff who hands the money back (today the note has no member of staff, so it is not in a desk's own till), but it moves the tax document's
   date and changes what a customer's receipt shows until they are paid. Not changed without the owner's decision.
-- **Staff taking a person off at the counter** writes no payout (the cash goes across the desk, but the till's list does not show it). Not in this brief.
+- **Staff taking a person off at the counter** writes no payout (the cash goes across the desk, but the till's list does not show it). Not in this brief. **Superseded by [ADR 0077](0077-staff-taking-a-person-off-at-the-counter-hand-the-money-over-then-and-it-is-written-as-the-payout-it-is.md)**: it now writes the payout.
 
 ## Alternatives considered
 

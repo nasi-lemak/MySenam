@@ -546,11 +546,15 @@ export async function withdrawPlace(
             )
             .run(a.ownRefund, booking.id);
         }
-        if (a.ownRefund > 0) await creditBookingPlace(booking.id, w.id, taken, a.ownRefund, why);
+        const note = a.ownRefund > 0 ? await creditBookingPlace(booking.id, w.id, taken, a.ownRefund, why) : null;
         // Paid at the counter and taken off by the customer or the venue's own system: nobody is at the till, so the credit note is not the refund
-        // and the money is owed back there (ADR 0074). Staff at the counter hand it over as they take the person off.
-        if (a.ownRefund > 0 && o.how === "hand" && by.kind !== "staff")
-          await (await import("./counter-refunds")).oweCounterToCustomer(booking.id, 1, { id: w.id, amount: a.ownRefund });
+        // and the money is owed back there (ADR 0074). Staff at the counter hand it over as they take the person off, and that is written as the
+        // payout it is, on the credit note (ADR 0077): the till's list of money handed back shows it, as a staff cancellation's does.
+        if (a.ownRefund > 0 && o.how === "hand") {
+          const counter = await import("./counter-refunds");
+          if (by.kind !== "staff") await counter.oweCounterToCustomer(booking.id, 1, { id: w.id, amount: a.ownRefund });
+          else if (note) await counter.handBackWithdrawnPlace(booking.id, { amount: a.ownRefund, creditNoteId: note.id, keptPercent: o.late ? o.keptPercent : null }, { id: by.adminId, name: by.name });
+        }
       }
       // The part settled from a deposit paid online goes back to that payment, with a credit note on the deposit's receipt.
       if (o.deposit > 0 && a.depositPaymentId !== null) {
