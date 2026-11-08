@@ -125,6 +125,14 @@ async function runShortWork(now: Date, result: TickResult): Promise<void> {
   }
 
   try {
+    // Counter payments still owed back: one message per venue per day to its managers, from 09:00 venue time; it settles nothing (lib/counter-owed-visibility.ts, ADR 0076).
+    await (await import("./counter-owed-visibility")).sendCounterOwedDigests();
+  } catch (err) {
+    console.error("[mysenam] telling managers what is owed back at the counter failed:", err);
+    await raiseAlert("scheduler:counter-owed-digest-failed", failed("srv.work.counterOwed"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Tournaments whose last day for entries has gone by: closed, ready for the draw.
     await closeDueEntries();
   } catch (err) {

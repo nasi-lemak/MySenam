@@ -147,6 +147,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0074 A customer's cancellation of a booking paid at the counter is an obligation to hand the money back; a credit note is the record of the cancellation, not the refund](architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md)
 [0075 The till is compared with the cash received and the cash actually handed back that day; a credit note is the record of a cancellation, not a payout; an unpaid refund is shown as still owed](architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)
 [0077 Staff taking a person off a booking at the counter hand the money over then, and it is written as the payout it is, by the member of staff who did it](architecture/decisions/0077-staff-taking-a-person-off-at-the-counter-hand-the-money-over-then-and-it-is-written-as-the-payout-it-is.md)
+[0076 The scheduler heartbeat, a payment mismatch and counter refunds owed back are each made visible to the person who must act, from data the app already holds](architecture/decisions/0076-three-operator-visibility-gaps-the-heartbeat-a-payment-mismatch-and-counter-refunds-owed.md)
 
 ## Integrations
 
@@ -179,6 +180,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 | What to do when something goes wrong: severity, containment, evidence, recovery, breach notification in Malaysia and Singapore | [Incident response](operations/incident-response.md) |
 | Whether a restricted pilot can start: the capability matrix, integrations, operating conditions, acceptance criteria | [Pilot readiness](operations/pilot-readiness-2026-11-07.md) |
 | What was checked against the real services and the environment in the pilot-activation round, and what is still open | [Pilot activation record](operations/pilot-activation-2026-11-08.md) |
+| What the pilot-completion round did after that, and the owner's open actions | [Pilot completion record](operations/pilot-completion-2026-11-08.md) |
 | What must be proven against the real services before the pilot (SES, B2, Billplz): the checks, the proof, today's results | [Pilot provider verification](operations/pilot-provider-verification.md) |
 | The questions for a Malaysian lawyer and, separately, the venue's tax adviser before the pilot takes a real customer: terms, privacy, payments and refunds, stored value, closure, retention, erasure, backups abroad, breach notification, providers, cancellation terms, liability, youth (pointer), and the unresolved MyInvois treatment of stored value; each item NOT REVIEWED | [Legal and tax review packet](operations/legal-review-packet-2026-11-08.md) |
 | What the named pilot operator does each day and week, the incident procedures (application down, email failing, paid with no booking, not refunded, double claim, venue closing, provider failing, backup failing, breach, lost access), the start and end of day sheet and the escalation table | [Pilot daily operations](operations/pilot-daily-operations.md) |

@@ -73,8 +73,7 @@ was removed and no blanket prune was run. A disk guard now exists in the applica
 runner (section 3 of the [hardening notes](../development/testing.md)). External monitoring is
 **not configured**: see the table and recommended minimum in
 [monitoring](monitoring.md#external-monitoring-for-the-pilot). The scheduler, backup and outbox
-alerts exist; there is no alert for payment mismatches and no screen for the heartbeat
-([known limitations](../roadmap/known-limitations.md)). Remaining infrastructure risks: no
+alerts exist; a payment mismatch now raises an owner alert, the owner's dashboard shows the scheduler heartbeat and counter refunds owed have a *Needs attention* line and a daily manager message (added after this record: [pilot completion](pilot-completion-2026-11-08.md)). Remaining infrastructure risks: no
 off-site backup yet, no external uptime monitor, a Postgres volume elsewhere is not watched, a
 killed verification run leaves its throwaway container.
 

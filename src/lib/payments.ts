@@ -38,7 +38,7 @@ import { venueTax } from "./tax";
 import { clockValue, said, withPhrase, type StaffText } from "./staff-text";
 import { cancelPolicy, struckOut, type OnlineRefunds } from "./cancel-policy";
 import { activateVoucher, pendingVoucher, sendVoucher, type Voucher, type VoucherInput } from "./vouchers";
-import { assessSettlement, fromMinor, ISSUE_ENGLISH, logSettlement, recordReceived, toMinor, type Assessment, type SettlementIssue } from "./payment-settlement";
+import { alertPaymentToCheck, assessSettlement, fromMinor, ISSUE_ENGLISH, logSettlement, recordReceived, toMinor, type Assessment, type SettlementIssue } from "./payment-settlement";
 
 /**
  * Paying for a booking online, into the venue's own account.
@@ -708,6 +708,8 @@ async function holdUnapplied(row: PaymentRow, result: PaymentResult, check: Extr
     );
   })();
   if (!held) return false;
+  // The owners are told it is on the list to check (once: only the callback that claimed the payment gets here).
+  await alertPaymentToCheck(row.id);
   // What the page was for does not happen; what it was holding is let go.
   if (row.purpose === "membership") await releaseForPayment(row.id, "not_applied");
   if (row.purpose === "pass") await db.prepare("UPDATE online_payments SET page_closed_at = COALESCE(page_closed_at, datetime('now')) WHERE id = ?").run(row.id);
@@ -1106,6 +1108,7 @@ async function settleOnce(result: PaymentResult): Promise<Settled | null> {
     // and the payer is told their money is owed back and the booking was not confirmed.
     await releaseExpiredHolds().catch((err) => console.error("[mysenam] letting go of lapsed holds after a late payment failed:", err));
     await logSettlement(row.venue_id, `Payment ${row.id} (${row.bill_id}) came after the booking's hold was let go: ${money(Number(row.amount))} is owed back and the booking was not confirmed`);
+    await alertPaymentToCheck(row.id);
     await tellPayerNotApplied(row.id);
   }
 

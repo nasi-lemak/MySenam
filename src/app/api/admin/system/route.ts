@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, requireOwner } from "@/lib/admin-auth";
-import { clearAlert, recentAlerts, schedulerAlive } from "@/lib/alerts";
+import { clearAlert, recentAlerts, schedulerAlive, schedulerHeartbeat } from "@/lib/alerts";
 import { schedulerEnabled } from "@/lib/scheduler";
 import { jsonObject } from "@/lib/api";
 import { claimsArchiveStatus } from "@/lib/claims-archive";
@@ -18,7 +18,9 @@ export async function GET(req: NextRequest) {
   if (denied) return denied;
   return NextResponse.json({
     alerts: await recentAlerts(),
-    scheduler: { enabled: schedulerEnabled(), alive: await schedulerAlive() },
+    // `alive` is what /api/health answers from (true for ten minutes after a restart whatever happened); `heartbeat` is the stricter reading the dashboard shows
+    // (healthy, stale, never stamped, starting, off) with the last stamp and the newest outstanding scheduler failure: lib/alerts.ts `schedulerHeartbeat`.
+    scheduler: { enabled: schedulerEnabled(), alive: await schedulerAlive(), heartbeat: await schedulerHeartbeat(schedulerEnabled()) },
     webhook: !!process.env.MYSENAM_ALERT_WEBHOOK,
     // Moving past court time out of the live table: off (days 0), how far it has got, and whether it is keeping up.
     claimsArchive: await claimsArchiveStatus(),

@@ -320,6 +320,15 @@ booking, or none: ring them). *Mark checked* takes it off the list, once, with a
 and is in the activity log (`POST /api/admin/online-payments`); it moves no money. What is owed
 back is also under *Refunds owed*, where it is refunded in the usual way.
 
+**The owners are told** ([ADR 0076](../architecture/decisions/0076-three-operator-visibility-gaps-the-heartbeat-a-payment-mismatch-and-counter-refunds-owed.md);
+`alertPaymentToCheck`): when a payment is put on the list (any issue above, once, from the statement that claims it), one alert is
+raised under the key `payment:check:<payment id>` through the ordinary owner-alert path: an email to each platform owner, the alert
+webhook if set, and *System health*. It names the venue and the payment's reference (the gateway's bill id), the issue, the amount
+and what is owed back, and says to open *Venues & staff → Online payment → Payments to check*; it holds no customer name, phone or
+email. A repeated callback, the redirect after it, or callbacks at once raise it once; *Mark checked* clears it; another payment
+later is a new alert. After five alerts standing at one venue, further ones are one line a day for that venue
+(`payment:check:many:<venue>:<day>`), cleared when the venue's last payment is checked. The list stays the record and the alert moves no money.
+
 **A payment after the booking's hold was let go** (owner decision DEC-14: do not revive).
 At settlement a booking whose hold has run out counts as lapsed whether or not the
 scheduler has let it go yet, so the outcome does not depend on the tick. Late is judged
@@ -636,6 +645,16 @@ credit note is written yet.
   at the staff's venues, whatever day it was for (*Owed back at the counter*;
   `owed` on `GET /api/admin/bookings`), with the booking, the customer, how it
   was paid and why it was cancelled.
+- **Seen without opening the list** ([ADR 0076](../architecture/decisions/0076-three-operator-visibility-gaps-the-heartbeat-a-payment-mismatch-and-counter-refunds-owed.md);
+  `src/lib/counter-owed-visibility.ts`). *Needs attention* has a line, `counterOwed` on `GET /api/admin/attention`, for the venue's staff (the
+  desk too) and the owner for every venue: per venue how many counter payments are owed back whatever the cause (a customer's
+  cancellation, a place taken off, a closure, outage, rain-out, API, class, test, lesson moved, a move to a cheaper time), the sum,
+  the whole days the oldest has waited and how many have waited `REFUND_OVERDUE_DAYS` (2) or more (red if any, else amber); no
+  customer name. Once per venue per venue-local day, from 09:00 on the venue's clock, the scheduler's short unit queues **one message**
+  to the venue's managers (and its business's managers; the front desk is not written to) with the same counts, the sum and the
+  oldest age, no customer or booking. The outbox's key `counter-owed:<venue>:<day>:<email>` makes it once a day across restarts,
+  repeated ticks and two servers; nothing is sent when nothing is owed. **No message and no line settles anything**: a row leaves
+  only through *Handed back* or *Give as credit*.
 - **Settled when the customer comes**, as a staff cancellation settles
   (`POST /api/admin/bookings/owed`): *Handed back* the way it was paid (its
   credit note and a counter payout written then, by the member of staff
