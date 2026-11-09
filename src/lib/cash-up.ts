@@ -330,6 +330,9 @@ function byMethodOf(rows: { method: string | null; amount: number }[]): { method
  * - **Credit notes not counted as cash**: a credit note in the day's journal that a payout, or an owed row of a customer's cancellation, points
  *   at is the record of the refund, so its amount is put back into the till and the payout takes the cash out on the day it happened. A payout
  *   that names no credit note (written before they were linked) is left to its credit note as it always was, so nothing is taken out twice.
+ * - **A cancellation from before migration 0346, reconciled by a manager** (ADR 0078): its credit note was counted as cash leaving the till on its
+ *   own day (the rule above for a note nothing points at), and that day stays as it was counted. Neither the reconciliation's owed row nor its
+ *   payout (`historical_reconciliation`) links the note; the part handed back now is a payout on the day it is handed over, like any other.
  */
 async function refundsOn(venueId: number, date: string, staffId: number | null, rows: Row[]): Promise<{ report: CashUpRefunds; notes: Map<string, number>; out: Map<string, number> }> {
   const db = getDb();
@@ -343,9 +346,10 @@ async function refundsOn(venueId: number, date: string, staffId: number | null, 
     const ph = noteIds.map(() => "?").join(",");
     const found = (await db
       .prepare(
-        `SELECT credit_note_id AS id FROM counter_payouts WHERE credit_note_id IN (${ph})
+        `SELECT credit_note_id AS id FROM counter_payouts WHERE credit_note_id IN (${ph}) AND NOT historical_reconciliation
          UNION SELECT credit_note_id FROM counter_fee_refunds_owed WHERE credit_note_id IN (${ph})
-         UNION SELECT r.id FROM counter_refunds_owed o JOIN receipts r ON r.kind = 'credit_note' AND r.source = ${CUSTOMER_NOTE_SOURCE} WHERE r.id IN (${ph})`
+         UNION SELECT r.id FROM counter_refunds_owed o JOIN receipts r ON r.kind = 'credit_note' AND r.source = ${CUSTOMER_NOTE_SOURCE}
+                WHERE r.id IN (${ph}) AND o.historical_finding IS NULL`
       )
       .all(...noteIds, ...noteIds, ...noteIds)) as { id: number }[];
     for (const f of found) linked.add(Number(f.id));

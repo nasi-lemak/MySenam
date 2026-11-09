@@ -670,6 +670,8 @@ export interface OwedRefund {
   hasEmail: boolean;
   /** The credit note already written for a customer's cancellation (the tax document, not proof of a refund); null for the rest. */
   creditNote: string | null;
+  /** A manager's record of a cancellation from before migration 0346, written already settled (ADR 0078, lib/historical-counter-refunds.ts). */
+  historical: boolean;
 }
 
 export const OWED_REFUSALS = {
@@ -699,11 +701,12 @@ interface OwedRow {
   settled_via: CounterMethod | null;
   customer_notified_at: string | Date | null;
   note_number: string | null;
+  historical_finding: string | null;
 }
 
 // A customer's cancellation has its credit note already (the booking's, or the withdrawal's): it was written when they cancelled.
 const OWED_SQL = `SELECT o.id, o.venue_id, o.booking_id, o.amount::float AS amount, o.via, o.cause, o.owed_since, o.settled_at, o.outcome, o.admin_name, b.code,
-                         o.withdrawal_id, o.settled_via, o.customer_notified_at,
+                         o.withdrawal_id, o.settled_via, o.customer_notified_at, o.historical_finding,
                          (SELECT r.number FROM receipts r WHERE r.kind = 'credit_note'
                              AND r.source = CASE WHEN o.withdrawal_id IS NULL THEN 'booking:' || o.booking_id ELSE 'booking:' || o.booking_id || ':place:' || o.withdrawal_id END) AS note_number
                     FROM counter_refunds_owed o JOIN bookings b ON b.id = o.booking_id`;
@@ -733,6 +736,7 @@ async function toOwed(r: OwedRow, role: StaffRole, zones: Map<number, string>): 
     notifiedAt: r.customer_notified_at ? new Date(r.customer_notified_at).toISOString() : null,
     hasEmail: !!b.email?.trim(),
     creditNote: isCustomerOwedCause(r.cause) ? r.note_number : null,
+    historical: r.historical_finding !== null,
   };
 }
 
@@ -812,7 +816,14 @@ export async function settleOwed(
  * method used, and on which credit note, which was written when they cancelled), or, at the customer's request, as stored credit on the
  * account the booking was made from. The credit note itself is never rewritten: it is the tax document, and says the sale was reversed.
  */
-async function settleCustomerOwed(owed: OwedRefund, outcome: OwedOutcome, staff: CancellingStaff, via: CounterMethod | null): Promise<Partial<Settled>> {
+async function settleCustomerOwed(
+  owed: OwedRefund,
+  outcome: OwedOutcome,
+  staff: CancellingStaff,
+  via: CounterMethod | null,
+  /** A historical reconciliation's part handed back now (ADR 0078): that amount, and a payout the cash-up counts today only. */
+  historical?: { amount: number }
+): Promise<Partial<Settled>> {
   const db = getDb();
   const row = (await db
     .prepare(
@@ -833,13 +844,27 @@ async function settleCustomerOwed(owed: OwedRefund, outcome: OwedOutcome, staff:
   let kept: number | null = null;
   if (row.withdrawal_id !== null) kept = ((await db.prepare("SELECT kept_percent FROM place_withdrawals WHERE id = ?").get(row.withdrawal_id)) as { kept_percent: number | null }).kept_percent;
   else if (row.late_cancelled === 1) kept = row.late_kept_percent;
+  const amount = historical ? historical.amount : owed.amount;
   await db
     .prepare(
-      `INSERT INTO counter_payouts (venue_id, booking_id, credit_note_id, amount, via, kept_percent, admin_id, admin_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO counter_payouts (venue_id, booking_id, credit_note_id, amount, via, kept_percent, admin_id, admin_name, historical_reconciliation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(row.venue_id, owed.bookingId, note?.id ?? null, owed.amount, via, kept, staff.id, staff.name);
-  return { paidOut: { amount: owed.amount, via } };
+    .run(row.venue_id, owed.bookingId, note?.id ?? null, amount, via, kept, staff.id, staff.name, historical !== undefined);
+  return { paidOut: { amount, via } };
+}
+
+/**
+ * In a historical reconciliation's transaction (ADR 0078, lib/historical-counter-refunds.ts), with its owed row just written settled: the part
+ * handed back now, as the payout a customer's cancellation is settled with (`settleCustomerOwed`), on the credit note written when they
+ * cancelled, marked so the cash-up takes it out of today's till and leaves the note's own day as it was counted.
+ */
+export async function payOutHistorical(owedId: number, amount: number, via: CounterMethod, staff: CancellingStaff): Promise<{ amount: number; via: CounterMethod | null }> {
+  const owed = await owedRefund(owedId, staff.role);
+  if (!owed || !owed.historical || !isCustomerOwedCause(owed.cause)) throw new Error("historical owed row missing");
+  const done = await settleCustomerOwed(owed, "back", staff, via, { amount });
+  if (!done.paidOut) throw new Error("historical payout not written");
+  return done.paidOut;
 }
 
 /**

@@ -31,6 +31,7 @@ import type { OwedEntryFee } from "@/lib/entry-fee-refunds";
 import type { CorrectionScope } from "@/lib/booking-corrections";
 import { AdjustPrice } from "./AdjustPrice";
 import { OwedRefunds } from "./OwedRefunds";
+import { HistoricalRefunds } from "./HistoricalRefunds";
 import { SeriesMovePanel } from "./SeriesMovePanel";
 import { EntryDesk } from "./EntryDesk";
 import { RegisterButton } from "./AttendancePanels";
@@ -1199,6 +1200,14 @@ export function BookingsTab({ venues = [] }: { venues?: DayVenue[] } = {}) {
       <OwedRefunds
         owed={owed}
         fees={feesOwed}
+        onDone={(done) => {
+          setError(null);
+          setNotice(done);
+          load();
+        }}
+        onError={setError}
+      />
+      <HistoricalRefunds
         onDone={(done) => {
           setError(null);
           setNotice(done);
