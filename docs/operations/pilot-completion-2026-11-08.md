@@ -25,7 +25,8 @@ Operational defects only, each with its decision record and tests, and each in
 [known limitations](../roadmap/known-limitations.md): the operator-visibility gaps (ADR 0076,
 `tests/operator-visibility.test.ts`, `tests/operator-visibility-ui.test.tsx`) and the staff
 withdrawal cash-up (ADR 0077, `tests/staff-withdrawal-cash-up.test.ts`). Because application source
-changed after `f1c2c52`, the full release profile was run again on `354f346` on the AI VM and **passed** (7192 s: PGlite 7034 passed and 15 expected skips, Postgres 7050, docs 181, end-to-end 12, acceptance 95; source digest `f96d9442…`); see [testing](../development/testing.md#release-records). That is not CI and checked no real service.
+changed after `f1c2c52`, that pass does not cover the current revision; the release record in
+[testing](../development/testing.md#release-records) says whether the current revision passed.
 
 ## What is still open (needs a person or a credential)
 
