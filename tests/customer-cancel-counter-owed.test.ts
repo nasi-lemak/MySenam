@@ -731,6 +731,8 @@ describe("what a mock does not prove, and the old rows", () => {
     const legacy = await paidAtCounter({}, "cash");
     await cancelBooking(legacy.booking.code, legacy.phone);
     await getDb().prepare("DELETE FROM counter_refunds_owed WHERE booking_id = ?").run(legacy.booking.id);
+    // Written before migration 0346 was applied, as such a note was (the script lists only those: ADR 0078).
+    await getDb().prepare("UPDATE receipts SET issued_at = '2026-01-02 04:00:00' WHERE kind = 'credit_note' AND source = ?").run(`booking:${legacy.booking.id}`);
     // One that was handed back by staff (a payout) and one that is owed: neither is a candidate.
     const handed = await paidAtCounter({}, "cash");
     await cancelBooking(handed.booking.code, handed.phone);

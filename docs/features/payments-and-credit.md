@@ -748,12 +748,14 @@ in `src/lib/counter-refunds.ts`), written in the cancellation's own transaction:
   ([cash-up](#cash-up), [ADR 0075](../architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)),
   and shows the refund as *still owed back* until then.
 - **Past cancellations** are not turned into tasks (nobody can say whether the money was handed over then, and a refund must not be paid twice).
-  `scripts/reconcile-counter-cancellations.sql` is read only and lists the candidates for a manager to review: cancelled, paid at the counter, a credit
-  note, no owed row, no payout, no credit given by staff, not logged as cancelled by a member of staff.
+  A manager records each one's outcome from evidence, once, in the dashboard ([cancellations from before the obligation was written](#cancellations-from-before-the-obligation-was-written)).
+  `scripts/reconcile-counter-cancellations.sql` is read only and lists the same candidates, one per credit note: a whole cancellation or a person taken off by
+  the customer, from before migration 0346, paid at the counter, no owed row or payout for it, no credit given by staff for it, not logged as cancelled by a member of staff.
   Run it with `psql "$DATABASE_URL" -f scripts/reconcile-counter-cancellations.sql` (add `--csv` for a spreadsheet); a row is a lead, not a proof.
-  Its columns are the review table: `venue`, `booking_code`, `cancelled_on` (the credit note's date on the venue's calendar), `amount_possibly_owed`,
+  Its columns are the review table: `venue`, `booking_code`, `what` (a cancellation or a person taken off), `cancelled_on` (the credit note's date on the venue's calendar), `amount_possibly_owed`,
   `paid_with`, `payout_evidence` (the activity log's `payment.paid_out` or `payment.owed_credited` for the booking, or *none found*), `possible_duplicate`
-  (other credit notes on the booking, or stored credit added for it, or *no*), `staff_action` and `credit_note`. It names no customer and creates no task.
+  (other credit notes on the booking, stored credit added for it, money already handed back on the booking, or *no*), `staff_action` and `credit_note`.
+  It names no customer and creates no task.
 
 Tested in `tests/customer-cancel-counter-owed.test.ts` (each customer path, a late share on the terms sold, an edit of the policy afterwards, the
 deposit, the withdrawals, the message, settling once and twice, an alternative method, credit, the desk and the manager, another venue's staff, a double
@@ -767,8 +769,9 @@ already owed). A mock gateway is not a live check; the counter is not a provider
 has been run only on seeded rows, never on a pilot venue's real data, and nothing in this document says any row was returned or
 unpaid. The review is the manager's, with the venue's own records, and it is not a verification by MySenam.*
 
-**What the output is.** One row for each booking that was cancelled by its customer, paid at the counter, given a credit note, and
-shows no owed row, no payout, no credit given by staff and no staff cancellation in the log. **A *candidate* is a lead, not a
+**What the output is.** One row for each credit note of a booking cancelled by its customer (or a person the customer took off it)
+before migration 0346, paid at the counter, that shows no owed row, no payout, no credit given by staff for it and no staff
+cancellation in the log (the dashboard's review section lists the same). **A *candidate* is a lead, not a
 finding that money is unpaid.** The script cannot know whether the money was handed back at the till on the day: before migration
 0346 nobody wrote that down. A row that is not listed is not proof that it was handled either (a test or demo booking, a booking
 paid by credit or a pass, one paid online, and one that a member of staff is logged as having cancelled are left out on purpose).
@@ -791,16 +794,13 @@ means only that the log holds nothing, not that nothing was paid.
 by recording it:
 
 1. **Not returned, owed.** The evidence says the money was never handed back (the till, the log and the customer agree). The
-   manager hands back what is still owed, once, and notes it. **The repository has no screen, route or script that creates an
-   owed row, or records a payout, for a past cancellation**: *Owed back at the counter* is settled only from a row written at
-   the cancellation, and the past ones were deliberately not backfilled so that nothing is paid twice
-   ([ADR 0074](../architecture/decisions/0074-a-customers-cancellation-of-a-counter-payment-is-an-obligation-to-hand-it-back.md),
-   decision 4). So where, and in which record, a late hand-back is written down so that the next cash-up is not confused by it is
-   **an open question for the owner and the technical contact**; do not improvise it with a manual ledger entry or a repeated
-   cancellation.
-2. **Returned.** The evidence says it was handed back (a till payout, a log entry, the customer's word with a date). Write the
-   evidence note and leave the row. Nothing in MySenam is changed.
-3. **Leave.** The evidence is not enough either way. Write what was tried and the date to look again. Whether a customer who
+   manager hands back what is still owed, once, and records it in the dashboard as *handed back now*
+   ([below](#cancellations-from-before-the-obligation-was-written)): a payout in today's cash-up, the cancellation's day unchanged.
+   Do not improvise it with a manual ledger entry, a hand-made payout or a repeated cancellation.
+2. **Returned.** The evidence says it was handed back (a till payout, a log entry, the customer's word with a date). Record it in the
+   dashboard as *handed back at the time*, with the day, the method and the evidence reference: no cash moves and no day's till changes.
+3. **Leave.** The evidence is not enough either way. Write what was tried and the date to look again; record nothing in the dashboard (there is
+   no "not owed" outcome), so the case stays on its list. Whether a customer who
    later comes forward is then paid is the owner's decision, made before the review starts: ____.
 
 | Venue | Booking code | `cancelled_on` | Amount | Paid with | Log evidence | Duplicate? | Till checked (days, result) | Customer asked (when, answer) | Decision (1, 2 or 3) | Evidence note | Reviewed by | Date |
@@ -811,6 +811,44 @@ A pilot that opens with no earlier bookings has an empty output; the review appl
 bookings cancelled before migration 0346. The launch gate "historical counter-refund candidates reviewed" stays **No** until a
 person has run the script on the real data and recorded a decision for every row
 ([activation record](../operations/pilot-activation-2026-11-08.md#7-launch-gates-as-they-stand)).
+
+### Cancellations from before the obligation was written
+
+The pre-0346 candidates above, recorded once by a manager in the dashboard ([ADR 0078](../architecture/decisions/0078-cancellations-from-before-money-owed-back-was-written-down-are-recorded-once-and-change-no-counted-day.md);
+`src/lib/historical-counter-refunds.ts`, `GET`/`POST /api/admin/bookings/owed/historical`, migration 0348). Under *Owed back at the counter* on the bookings screen a
+manager opens *Before <date>: cancellations to review* (the date migration 0346 was applied); the front desk does not see it and the route refuses it (`MANAGER_ONLY`).
+
+- **The list.** One line per credit note, by the script's rules: the booking code, the credit note and its total, a whole cancellation or a person taken off, the
+  credit note's day, how it was paid, and the evidence (activity-log actions, other credit notes on the booking, stored credit added, money already handed back
+  on the booking, and *part or all may already be back* where any is found). No customer name or contact: the booking page shows the customer to the venue's staff.
+  A manager sees their own venues' notes; the platform owner every venue's.
+- **What the evidence shows.** *Handed back at the time* (the amount, the day it actually was, between the cancellation and yesterday, and the method), *not
+  handed back: handing it back now* (the amount and the method used now), or part of each. Always an evidence reference (the till sheet, the cash book, a receipt,
+  a log entry) and a reason. Handed back in all: above nothing and at most the credit note's total; what is left of the note is stored, with the reason it is not
+  returned (required). Not enough evidence: record nothing; there is no "not owed" outcome and the case stays on the list.
+- **The preview, before anything is written.** What will be written (a record on the owed list, already completed and marked as a historical reconciliation; a
+  payout for the part handed back now; no new credit note) and the cash-up in words: *today's cash-up: RM x handed back by <method>*; the credit note's day and the
+  earlier day *not changed (it counted this credit note as handed back on <day> under the old rule)*; and for each of those days (and today) a till count already
+  recorded, by whom and when. A counted day needs the manager's explicit acknowledgement to record.
+- **What is written.** One row on the list of counter money owed back (`counter_refunds_owed`), cause `customer_cancelled` or `place_withdrawn`, already settled,
+  `owed_since` and `settled_at` the moment it is recorded (never the cancellation's date), with the finding, the earlier part (day, method), the part now, the
+  remainder and its reason, the evidence, the reason, the verifying manager and whether a counted day was acknowledged. For the part handed back now, a payout
+  (`counter_payouts`, dated now, the method used, on the old credit note, `historical_reconciliation`), by the path a customer's cancellation is settled with.
+  The staff activity log says `payment.historical_reconciled` (and `payment.paid_out` for a payout). The credit note is neither written again nor edited.
+- **The cash-up.** The part handed back now is cash leaving today's till, by the method used. Nothing else moves: the credit note's day was counted with the note
+  as cash leaving that day (the rule for a note nothing points at, [ADR 0075](../architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)),
+  and neither the historical row nor its payout links that note, so that day stays exactly as counted; nor does any day's *still owed* change.
+- **Once.** One record per cancellation and per withdrawal (the owed list's unique indexes), written in one transaction that checks the candidate again: a second
+  submission, or a second manager at the same moment, is refused *already recorded*, with nothing written.
+- **Kept** as the counter refunds they sit with are: no deletion; the booking's names are anonymised on its own schedule, the amounts kept; the activity log for 730
+  days ([privacy](../architecture/privacy.md)).
+- **Seen afterwards** in the same section as *Recorded*: *completed (historical reconciliation)*, "RM x handed back on <day> by <method> (recorded on <day> as a
+  historical reconciliation)", the part paid out now, what is left and why, who verified it, the evidence and the reason. It is never on the list of money still owed.
+
+Tested in `tests/historical-counter-refunds.test.ts` on PGlite and Postgres (the list and the script, each finding, a remainder, two notes on one booking, a cheaper
+move first, refusals, a duplicate and two managers at once, a counted day, the desk and another venue, the cash-up of the cancellation day, the earlier day and today,
+and rows written before 0348), `tests/historical-counter-refunds-migration.test.ts` (migration 0348 on production-shaped rows) and
+`tests/components/historical-refunds.test.tsx` (the screen). No real till was counted and no pilot data was reviewed.
 
 ### Refunds for one person's place
 

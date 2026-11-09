@@ -192,6 +192,7 @@ const ACTION_PHRASES: Record<string, StaffPhrase> = {
   "booking.details_corrected": "p8a.act.detailsCorrected",
   "booking.series_cancelled": "p8a.act.seriesCancelled",
   "payment.paid_out": "p8a.act.paidOut",
+  "payment.historical_reconciled": "h78.act.reconciled",
   // p8c
   "day.closed": "p8c.act.dayClosed",
   "day.reopened": "p8c.act.dayReopened",

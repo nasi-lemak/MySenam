@@ -1031,4 +1031,16 @@ export const REFUSALS: Record<string, { ms: string; zh: string }> = {
   "That payment is not waiting to be checked.": { ms: "Bayaran itu tidak menunggu untuk disemak.", zh: "该付款不在待核查之列。" },
   // Hardening (REFUND, ADR 0074)
   "This one is handed back the way it was paid.": { ms: "Yang ini dipulangkan mengikut cara ia dibayar.", zh: "这笔款项按原支付方式退还。" },
+  // Hardening (HIST, ADR 0078)
+  "That credit note is not on the list of cancellations to review.": { ms: "Nota kredit itu tiada dalam senarai pembatalan untuk disemak.", zh: "该贷项通知单不在待核查的取消清单上。" },
+  "Already recorded: this cancellation has its record on the list of money owed back.": { ms: "Sudah direkodkan: pembatalan ini sudah mempunyai rekodnya dalam senarai wang terhutang.", zh: "已经记录：此取消在待退款项清单上已有记录。" },
+  "Say what the evidence shows: handed back earlier, handed back now, or part of each.": { ms: "Nyatakan apa yang ditunjukkan oleh bukti: dipulangkan lebih awal, dipulangkan sekarang, atau sebahagian setiap satu.", zh: "请说明证据显示的情况：之前已退还、现在退还，或各占一部分。" },
+  "Give the evidence reference: the till sheet, the cash book, a receipt or the log entry.": { ms: "Berikan rujukan bukti: helaian kaunter, buku tunai, resit atau catatan log.", zh: "请提供证据参考：柜台结算单、现金簿、收据或记录条目。" },
+  "Give the reason for this record.": { ms: "Berikan sebab bagi rekod ini.", zh: "请说明此记录的原因。" },
+  "The part handed back earlier needs its amount, the day it was handed back and how.": { ms: "Bahagian yang dipulangkan lebih awal memerlukan jumlahnya, hari ia dipulangkan dan caranya.", zh: "之前退还的部分需要填写金额、退还日期和方式。" },
+  "The day it was handed back earlier is between the cancellation and yesterday. Money handed back today is recorded as handed back now.": { ms: "Hari ia dipulangkan lebih awal mestilah antara hari pembatalan dan semalam. Wang yang dipulangkan hari ini direkodkan sebagai dipulangkan sekarang.", zh: "之前退还的日期须在取消当天至昨天之间。今天退还的款项请记录为现在退还。" },
+  "The part handed back now needs its amount and how it is handed back.": { ms: "Bahagian yang dipulangkan sekarang memerlukan jumlahnya dan cara ia dipulangkan.", zh: "现在退还的部分需要填写金额和退还方式。" },
+  "Together the amounts cannot be more than the credit note.": { ms: "Jumlah kesemuanya tidak boleh melebihi nota kredit.", zh: "各项金额合计不能超过贷项通知单的金额。" },
+  "Part of the credit note is not handed back: say why, in the reason for what is left.": { ms: "Sebahagian nota kredit tidak dipulangkan: nyatakan sebabnya dalam sebab bagi baki itu.", zh: "贷项通知单有一部分未退还：请在余额原因中说明理由。" },
+  "A day this record concerns already has a till count. Read the preview, then confirm you have seen it.": { ms: "Hari yang berkaitan dengan rekod ini sudah mempunyai kiraan kaunter. Baca pratonton, kemudian sahkan bahawa anda telah melihatnya.", zh: "此记录涉及的某一天已有柜台清点记录。请阅读预览，然后确认您已知悉。" },
 };

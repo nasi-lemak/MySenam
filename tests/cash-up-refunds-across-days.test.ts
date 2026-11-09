@@ -633,7 +633,8 @@ describe("the review table for earlier cancellations (read only)", () => {
     });
     expect(String(found.staff_action)).toMatch(/hand|asked|ask/i);
     expect(Object.keys(found).sort()).toEqual(
-      ["amount_possibly_owed", "booking_code", "cancelled_on", "credit_note", "paid_with", "payout_evidence", "possible_duplicate", "staff_action", "venue"].sort()
+      // `what` (ADR 0078): a whole cancellation or a person taken off, since the table lists withdrawals' credit notes too.
+      ["amount_possibly_owed", "booking_code", "cancelled_on", "credit_note", "paid_with", "payout_evidence", "possible_duplicate", "staff_action", "venue", "what"].sort()
     );
   });
 

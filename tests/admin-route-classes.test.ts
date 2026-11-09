@@ -107,6 +107,9 @@ const ROUTE_CLASS: Record<string, "manager" | "owner" | "desk" | "account"> = {
   "GET /api/admin/bookings/move-series": "desk",
   "POST /api/admin/bookings/move-series": "desk",
   "POST /api/admin/bookings/owed": "desk",
+  // Recording a cancellation from before money owed back was written down (ADR 0078): a manager's.
+  "GET /api/admin/bookings/owed/historical": "manager",
+  "POST /api/admin/bookings/owed/historical": "manager",
   "GET /api/admin/bookings/passes": "desk",
   "POST /api/admin/bookings/passes": "desk",
   "GET /api/admin/bookings/reschedule": "desk",

@@ -138,6 +138,8 @@ export const MANAGER_ONLY: { path: RegExp; methods: string[] | "all" }[] = [
   { path: /^\/api\/admin\/pass-products$/, methods: ["POST", "PATCH", "DELETE"] },
   // Changing a booking's price, or giving it free, with a reason (lib/price-adjustments.ts).
   { path: /^\/api\/admin\/bookings\/adjust-price$/, methods: ["POST"] },
+  // Recording what happened to the money of a customer's cancellation from before money owed back was written down (ADR 0078): the list and the record.
+  { path: /^\/api\/admin\/bookings\/owed\/historical$/, methods: "all" },
   // Staff accounts and their invitations (lib/staff-accounts.ts): the owner, a business manager, or a branch manager for their own front desk.
   { path: /^\/api\/admin\/admins(\/\d+|\/invitations\/\d+|\/\d+\/two-factor-reset)?$/, methods: "all" },
   // Opening hours and rates from a later date, as changing them now is (lib/dated-changes.ts, ADR 0027); the desk may read them.
@@ -311,6 +313,8 @@ export const STAFF_ACTIONS = {
   apiKeys: "GET /api/admin/integrations",
   paymentSettings: "GET /api/admin/venues/1/payment-settings",
   staffLog: "GET /api/admin/activity",
+  // Cancellations from before money owed back was written down: reviewing and recording them (ADR 0078).
+  historicalRefunds: "POST /api/admin/bookings/owed/historical",
 } as const satisfies Record<string, string>;
 
 export type StaffActionName = keyof typeof STAFF_ACTIONS;

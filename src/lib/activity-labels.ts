@@ -203,6 +203,8 @@ export const ACTION_LABELS: Record<string, string> = {
   "booking.details_corrected": "Corrected a booking's name, number or email",
   "booking.series_cancelled": "Cancelled weeks of a weekly series",
   "payment.paid_out": "Handed money back at the counter (a cancelled booking, an entry fee, a pass or a membership)",
+  // ADR 0078
+  "payment.historical_reconciled": "Recorded what happened to the money of a customer's cancellation from before money owed back was written down",
   // p8c: staff writes logged since round 8 (tests/staff-log-coverage.test.ts), and kinds written before without words.
   "day.closed": "Closed the venue for a day",
   "day.reopened": "Opened a closed day again",
