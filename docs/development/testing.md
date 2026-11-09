@@ -964,6 +964,33 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 9 November 2026, commit `f2263b1` (final bounded housekeeping, release verification on the AI VM: PASS)
+
+`node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
+on a loopback port), of commit `f2263b108dbb5b30395a3a5f893ae55728c63aeb`, tree clean, source digest `ae20182e487ff719a9f8b6e912d292bceb2265f396bcddbfc147cccb310f8385` (the same
+before and after the run). Started 12:35 UTC (20:35 Malaysian time), 7646 seconds; the disk was 87.7% used (the runner's preflight warns above 80%). Report:
+`artifacts/verify/f2263b108dbb-1794227713464.json` (not committed). This verifies the source of the [housekeeping round](../audits/final-bounded-housekeeping-2026-11-09.md): the
+historical counter-refund records ([ADR 0078](../architecture/decisions/0078-cancellations-from-before-money-owed-back-was-written-down-are-recorded-once-and-change-no-counted-day.md),
+migration 0348) and the owners' refund summary with email on *System health*
+([ADR 0079](../architecture/decisions/0079-the-platform-owners-daily-refund-summary-and-email-on-system-health.md)), on top of `354f346`. **This is not CI** (no GitHub Actions job was
+started) **and not production readiness.**
+
+| Step | Result |
+| ---- | ------ |
+| Type-check | Passed |
+| Lint (`--max-warnings 0`) | Passed |
+| Documentation checks | 184 of 184 passed |
+| Suite on PGlite | 7091 passed, 0 failed, 15 skipped (the 15 Postgres-only tests listed in `scripts/lib/expected-skips.mjs`), of 7106 |
+| Suite on PostgreSQL 16 | 7107 passed, 0 failed, **0 skipped**, of 7107; the server committed 2490 transactions during it (Postgres was used) |
+| Production build | Succeeded |
+| Browser end-to-end tests | 12 of 12 passed |
+| Acceptance scenarios (UAT) | 27 files; 95 of 95 passed, none skipped |
+| CI | Not run: GitHub Actions workflows start only by hand |
+| Real services | None checked by this run |
+
+It passed on the first run of this source; nothing was retried and no run of it failed. Commits after `f2263b1` that change only this file leave the verification standing;
+`node scripts/verify.mjs check` says so.
+
 #### 9 November 2026, commit `354f346` (pilot completion round, release verification on the AI VM: PASS)
 
 `node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
