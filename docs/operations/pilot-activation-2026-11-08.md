@@ -19,7 +19,7 @@ B2 round trip and restore, the legal review, monitoring and a named operator.
 Commit `8899dc0`, clean tree; the only change since the verified source `d844e4a` (digest
 `50df113e…`) was the release record. This round then changed application source (a cash-up
 correction and a disk-space guard), so the source is verified again by the record that follows
-this one in testing.md; until that record says PASS, the pilot's code is **not verified**.
+this one in testing.md; `f1c2c52` passed, and the later pilot-completion changes passed on `354f346` (see [testing](../development/testing.md#release-records)).
 
 ## 2. Provider results
 

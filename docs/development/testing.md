@@ -988,7 +988,7 @@ started) **and not production readiness.**
 | Real services | None checked by this run (see the [completion record](../operations/pilot-completion-2026-11-08.md)) |
 
 This is the first complete run of this source to finish; nothing in it was retried. Three earlier attempts on the same commit were cut short when the machine restarted while the session was idle
-(two before the first suite finished, one in its PGlite suite) and are not counted: their logs show only the steps that had finished, and no step failed. Commits after `354f346` that change only
+(during the type-check or the PGlite suite) and are not counted: their logs show only the steps that had finished, and no step failed. Commits after `354f346` that change only
 this file leave the verification standing; `node scripts/verify.mjs check` says so.
 
 #### 8 November 2026, commit `f1c2c52` (pilot activation round, release verification on the AI VM: PASS)
