@@ -25,6 +25,16 @@ The first real run should correct this document.
    ([who does what](incident-response.md#who-does-what)).
 4. **An uptime monitor and an alert channel set up** ([external monitoring for the pilot](monitoring.md#external-monitoring-for-the-pilot)):
    as the baseline stands none is configured, so the app cannot tell the operator it is down.
+5. **The cancellations from before the owed-back list reviewed**, venue by venue, by a manager, under *Owed back at the
+   counter* → *Before … cancellations to review* (ADR 0078). Each is recorded once from evidence; none is assumed paid or
+   owed.
+6. **Two pilot rules while the owner decides** ([known limitations](../roadmap/known-limitations.md)):
+   - **Do not use *Mark unpaid* for a payment from an earlier day.** It removes the sale from the day it was paid, after
+     that day may have been counted. Money really going back is a cancellation or a refund, which writes its credit note
+     and payout. *Mark unpaid* is only for undoing a mistaken tick on the same day, before the till is counted.
+   - **A lesson paid at the counter given to a cheaper coach:** choose *keep* (the venue absorbs the difference), or hand
+     the difference over at that moment. Never promise it for later: the app writes no owed row for it, so nothing would
+     remind anyone, and the till would read wrong on both days.
 
 ## The screens, by their names
 
@@ -204,9 +214,11 @@ the venue manager (to tell the customer). [Duplicate payments, or refunds that f
 
 1. Find the booking and how it was paid.
 2. **Paid at the counter:** *Owed back at the counter*. If it is not there: was it paid by credit or a pass (credit and
-   entries go back on their own), or was it a cancellation from before the owed-back list existed (past cancellations are not
-   listed; the venue knows whether it handed the money back; the read-only script `scripts/reconcile-counter-cancellations.sql`
-   lists candidates for review)? Where it is listed, a named staff member hands the money back and presses **Handed back**.
+   entries go back on their own), or was it a cancellation from before the owed-back list existed? Those are under
+   *Owed back at the counter* → *Before … cancellations to review* (managers only): with the evidence in front of them, the
+   manager records whether the money went back earlier, goes back now, or part of each, once
+   ([payments and credit](../features/payments-and-credit.md), ADR 0078). Too little evidence: leave it listed and ask the
+   venue manager. Where it is listed as owed, a named staff member hands the money back and presses **Handed back**.
 3. **Paid online:** *Refunds owed* (is it owed, overdue, requested, processing, failed or completed?), then the gateway
    dashboard. A **late** cancellation under the terms the booking was sold on keeps the venue's share by design; the
    customer can read those terms on *My booking*. Do not override without the venue manager.
