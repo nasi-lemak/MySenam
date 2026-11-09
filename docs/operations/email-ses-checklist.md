@@ -74,6 +74,14 @@ answered and accepted the credentials. It sends nothing, and *reachable* is not 
 (the configuration), in *System health*, by email, and on `MYSENAM_ALERT_WEBHOOK`. What to do about each: [monitoring](monitoring.md#being-told-when-something-breaks),
 and for a person locked out, [security mail](../integrations/messaging.md#security-mail).
 
+Where the owner looks, without waiting for an alert: the **Email** section of *System health* on the admin dashboard
+([email on System health](monitoring.md#email-on-system-health)). After the steps above it should read *Configuration: configured, delivery
+verified. Provider: Amazon SES* and *Delivery verified (separately confirmed): yes*; until `MAIL_DELIVERY_VERIFIED` is set to this provider's and
+sender's fingerprint it stays amber with "Delivery has not been verified". Its *Accepted by provider* count is SES taking the message, never
+proof of delivery: the inbox check in step A is the only proof, and bounces and complaints are not read back ([C](#c-watching-bounces-and-complaints-during-the-pilot)).
+Its *Failed*, *Abandoned* and recent failure reasons (the provider's words with addresses, links and secrets taken out) are the first thing to read
+when sending stops.
+
 ## Upgrading an install that had no email
 
 A production marketplace that ran without a working email provider (or with `MYSENAM_SEND=log`) stops taking sign-up and forgotten-password requests when this version

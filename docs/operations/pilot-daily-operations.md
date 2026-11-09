@@ -35,15 +35,16 @@ The first real run should correct this document.
 | **Refunds owed**, **Refunds on their way**, **Payments to check**, **Disputed payments**, **Refund workload** | *Venues & staff*, under **Online payment** | Venue staff (the front desk's view is smaller) |
 | **Messages to customers** (*Sent*, *Waiting*, *Retrying*, *Given up*, *Try again*; **Platform emails** for the owner) | *Venues & staff* | Venue staff; platform emails the owner |
 | **Backups** (state, each snapshot *Whole* or not, the last off-site copy, *Back up now*) | *Venues & staff* | Owner only |
-| **System health** (the **Scheduler** line: healthy, stale, no heartbeat yet, starting or off, with the time since; outstanding alerts, *Dealt with*) | Top of the admin dashboard | Owner only; the Scheduler line is always there, the red box only while something is wrong |
+| **System health** (the **Scheduler** line: healthy, stale, no heartbeat yet, starting or off, with the time since; outstanding alerts, *Dealt with*; the **Email** section: configuration, *Queued*, *Accepted by provider*, *Failed*, *Abandoned*, *Delivery verified (separately confirmed)*, recent failure reasons, warnings) | Top of the admin dashboard | Owner only; the Scheduler line and the Email section are always there (the Email section amber while it warns), the red box only while something is wrong |
 | **Errors** | Top of the admin dashboard | Owner only |
 | **Booking integrity check** | Admin dashboard | Managers (their venues) and the owner (all); not the front desk |
 | **Cash-up** (counts, variance, *Print the cash-up*) | *Credit & passes* tab | Front desk its own shift; manager anybody's |
 | Period report, including **Held for customers, in ringgit**, unspent pass hours and lapsing memberships; **Staff activity** | *Reports* tab | Managers and the owner |
 | **Reviews** | *Venues & staff* | Venue staff |
 
-One thing the operator will look for and **will not find as a screen**: the email health numbers are in the owner's system
-answer (`GET /api/admin/system`, raw data, not a page). The scheduler is a line under **System health**: **Scheduler: healthy**
+The email numbers are the **Email** section under **System health** (owner only; what each word means is in
+[monitoring](monitoring.md#email-on-system-health)). *Accepted by provider* is the provider taking the message, **not** proof it
+reached an inbox; only *Delivery verified (separately confirmed)* says a person checked an inbox. The scheduler is a line under **System health**: **Scheduler: healthy**
 with the time since it last ran; **STALE** (more than 5 minutes); **NO HEARTBEAT YET** (never reported in); **starting** (the app
 restarted under 2 minutes ago; the only grace); or **switched off on this server**. **Only healthy is good.** The line is seen only
 while somebody has the dashboard open: an offline app cannot report itself, so it is not proof that the app is healthy
@@ -76,7 +77,12 @@ Do this at the start of the day and again at the end (the one-page sheet below).
    manager's. **Needs attention** shows a red line **Owed back at the counter** (amber if none is old yet): per venue how many
    wait, the sum, the oldest in days and how many are past 2 days; the venue's managers are emailed one message a day, after
    09:00 venue time, while anything is owed. **Neither settles anything**: a row leaves the list only when a named staff
-   member presses **Handed back** or **Give as credit**. The owner who is not also a manager sees the line but is not emailed.
+   member presses **Handed back** or **Give as credit**. The platform owners are emailed **one summary a day for every
+   venue**, after 09:00 Malaysian time (subject *Daily refund summary {day}*): per venue what waits, the sum, the oldest, how
+   many are past 2 days, what was newly owed and settled in the last 24 hours, and, under *For the platform to follow up*, the
+   overdue ones, the payments to check and any venue whose managers nobody could email. It carries no customer detail and
+   settles nothing; no summary that day means nothing was waiting and no payment was to be checked
+   ([ADR 0079](../architecture/decisions/0079-the-platform-owners-daily-refund-summary-and-email-on-system-health.md)).
    Where the customer has no email, ring them: the panel says so.
 5. **Failed customer notifications.** **Needs attention**: each customer the venue cancelled or moved who has not yet seen it,
    with the way they were reached. Red lines (*No email or WhatsApp: call them*, *Message failed: call them*) need a call;
@@ -162,10 +168,12 @@ if data may be lost.
 
 ### Email delivery fails
 
-*Detected by:* an alert on **System health** (messages not going out, email failing, email waiting too long); **Messages to
+*Detected by:* an alert on **System health** (messages not going out, email failing, email waiting too long); the amber
+**Email** section under it (its warnings, *Failed* and *Abandoned* counts and recent failure reasons); **Messages to
 customers** showing *Retrying* or *Given up*; customers saying nothing arrived; a sign-up or password-reset request refused
 as "temporarily unavailable" (on a production marketplace, that is deliberate while email cannot deliver).
-1. Check the email provider's status page and the SES console (technical contact).
+1. Read the **Email** section's recent failure reasons (the kind of message and the provider's words, without the address),
+   then check the email provider's status page and the SES console (technical contact).
 2. Ring every customer who must not miss news: **Needs attention** red lines.
 3. Do not mark the alert **Dealt with** yet. Messages wait and are retried (the wait grows to two hours); one that keeps
    failing is given up after 7 days by default and the venue's managers and the owners are told.
@@ -300,7 +308,7 @@ Date: ____ Venue: ____ Operator: ____ (one sheet per venue per day; tick and wri
 | Start of day | Done | Time | Notes |
 | ------------ | ---- | ---- | ----- |
 | Signed in; two-factor works | [ ] | | |
-| **System health**: any alert? scheduler line? | [ ] | | |
+| **System health**: any alert? scheduler line? **Email** section amber? | [ ] | | |
 | **Backups**: state *active*; newest snapshot age | [ ] | | |
 | **Needs attention**: open every block; red lines called | [ ] | | |
 | **Payments to check**: count ____ | [ ] | | |

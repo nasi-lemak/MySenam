@@ -314,7 +314,7 @@ describe("what the owner can see", () => {
     expect(health.lastHour).toEqual({ sent: 3, failed: 1, failureRate: 0.25 });
     expect(health.queued.count).toBe(2);
     expect(health.queued.oldestMinutes).toBeGreaterThanOrEqual(49);
-    expect(health.givenUp24h).toEqual({ total: 3, security: 2, securityAllowance: 1 });
+    expect(health.givenUp24h).toEqual({ total: 3, security: 2, securityAllowance: 1, securityExpired: 1 });
   });
 
   it("raises an alert when mail piles up, and when the provider mostly fails; and clears each when it stops", async () => {

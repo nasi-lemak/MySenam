@@ -49,7 +49,8 @@ is nothing to send. **No message, delivered, opened or ignored, settles anything
 ## Not decided here
 
 - **Who the "designated operator" is.** The message goes to the venue's managers. The platform owner is not on a venue's staff list, so an owner who is not also a manager sees the line in *Needs attention* (all venues) but is
-  not emailed. If the owner wants the platform owners told as well, that is a small addition and a recipient decision.
+  not emailed. If the owner wants the platform owners told as well, that is a small addition and a recipient decision. *Decided since in
+  [ADR 0079](0079-the-platform-owners-daily-refund-summary-and-email-on-system-health.md): each platform owner gets one daily summary of every venue.*
 - **A threshold other than two days, or a different hour.** Constants (`REFUND_OVERDUE_DAYS`, `COUNTER_OWED_DIGEST_HOUR`); the owner may change them.
 - **Whether a payment mismatch should also be sent to the venue's managers.** Not done: the brief said to use what `raiseAlert` uses.
 

@@ -148,6 +148,7 @@ Decision records: [0000 SQLite (superseded)](architecture/decisions/0000-sqlite-
 [0075 The till is compared with the cash received and the cash actually handed back that day; a credit note is the record of a cancellation, not a payout; an unpaid refund is shown as still owed](architecture/decisions/0075-the-till-is-compared-with-cash-received-and-cash-handed-back-and-a-credit-note-is-not-a-payout.md)
 [0077 Staff taking a person off a booking at the counter hand the money over then, and it is written as the payout it is, by the member of staff who did it](architecture/decisions/0077-staff-taking-a-person-off-at-the-counter-hand-the-money-over-then-and-it-is-written-as-the-payout-it-is.md)
 [0076 The scheduler heartbeat, a payment mismatch and counter refunds owed back are each made visible to the person who must act, from data the app already holds](architecture/decisions/0076-three-operator-visibility-gaps-the-heartbeat-a-payment-mismatch-and-counter-refunds-owed.md)
+[0079 The platform owners get one daily summary of what the venues owe back at the counter, and System health shows email as the outbox knows it](architecture/decisions/0079-the-platform-owners-daily-refund-summary-and-email-on-system-health.md)
 
 ## Integrations
 

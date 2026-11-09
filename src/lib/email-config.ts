@@ -154,7 +154,7 @@ export interface ReachableResult {
 }
 
 /** Nothing secret in what is reported. */
-function scrubbed(env: Env, text: string): string {
+export function scrubbed(env: Env, text: string): string {
   const secrets = [env.SES_ACCESS_KEY_ID, env.SES_SECRET_ACCESS_KEY, env.SES_SESSION_TOKEN, env.SMTP_URL]
     .map((s) => s?.trim())
     .filter((s): s is string => !!s && s.length >= 4);
