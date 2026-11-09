@@ -488,6 +488,10 @@ const en = {
   "srv.vis.issue.unverified": "the gateway's report lacks the amounts it should carry",
   "srv.vis.issue.hold_lapsed": "it arrived after the booking's hold was let go, so the booking was not confirmed",
   "srv.vis.issue.short_after_settled": "the gateway later reported less than was asked, after the payment had been applied",
+  // The platform owners' daily refund summary (ADR 0079)
+  "srv.work.ownerDigest": "telling the platform owners what the venues owe back at the counter",
+  "srv.dig.noRecipient.alert": "Nobody could be sent the platform's daily refund summary",
+  "srv.dig.noRecipient.detail": "The daily summary of counter refunds and payments to check for {day} was not sent: no platform owner account has an email address. Give a platform owner's account an address; each venue's own lists still hold everything.",
 } satisfies Record<string, string>;
 
 const ms: Record<keyof typeof en, string> = {
@@ -970,6 +974,10 @@ const ms: Record<keyof typeof en, string> = {
   "srv.vis.issue.unverified": "laporan gerbang tiada jumlah yang sepatutnya ada",
   "srv.vis.issue.hold_lapsed": "ia tiba selepas tahanan tempahan dilepaskan, jadi tempahan tidak disahkan",
   "srv.vis.issue.short_after_settled": "gerbang kemudian melaporkan kurang daripada yang diminta, selepas bayaran itu digunakan",
+  // The platform owners' daily refund summary (ADR 0079)
+  "srv.work.ownerDigest": "memaklumkan pemilik platform tentang bayaran balik di kaunter yang terhutang oleh pusat",
+  "srv.dig.noRecipient.alert": "Ringkasan bayaran balik harian platform tidak dapat dihantar kepada sesiapa",
+  "srv.dig.noRecipient.detail": "Ringkasan harian bayaran balik kaunter dan bayaran untuk disemak bagi {day} tidak dihantar: tiada akaun pemilik platform yang mempunyai alamat e-mel. Berikan alamat kepada akaun pemilik platform; senarai setiap pusat masih menyimpan segala-galanya.",
 };
 
 const zh: Record<keyof typeof en, string> = {
@@ -1452,6 +1460,10 @@ const zh: Record<keyof typeof en, string> = {
   "srv.vis.issue.unverified": "网关的报告缺少应有的金额",
   "srv.vis.issue.hold_lapsed": "款项在预订的保留被释放之后才到，因此预订未被确认",
   "srv.vis.issue.short_after_settled": "付款被应用之后，网关又报告金额少于要求的金额",
+  // The platform owners' daily refund summary (ADR 0079)
+  "srv.work.ownerDigest": "通知平台所有者各场馆需在柜台退还的款项",
+  "srv.dig.noRecipient.alert": "平台的每日退款摘要无法发送给任何人",
+  "srv.dig.noRecipient.detail": "{day} 的柜台退款与待核查付款每日摘要未发送：没有任何平台所有者账户设有电子邮件地址。请为一个平台所有者账户设置地址；各场馆自己的清单仍保存所有内容。",
 };
 
 const area = { en, ms, zh };

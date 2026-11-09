@@ -133,6 +133,14 @@ async function runShortWork(now: Date, result: TickResult): Promise<void> {
   }
 
   try {
+    // The same, for the platform owners: one summary of every venue a platform day, from 09:00 install time, counts only (ADR 0079).
+    await (await import("./counter-owed-visibility")).sendOwnerRefundDigest();
+  } catch (err) {
+    console.error("[mysenam] telling the platform owners what is owed back at the counter failed:", err);
+    await raiseAlert("scheduler:owner-refund-digest-failed", failed("srv.work.ownerDigest"), err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+
+  try {
     // Tournaments whose last day for entries has gone by: closed, ready for the draw.
     await closeDueEntries();
   } catch (err) {

@@ -653,8 +653,13 @@ credit note is written yet.
   customer name. Once per venue per venue-local day, from 09:00 on the venue's clock, the scheduler's short unit queues **one message**
   to the venue's managers (and its business's managers; the front desk is not written to) with the same counts, the sum and the
   oldest age, no customer or booking. The outbox's key `counter-owed:<venue>:<day>:<email>` makes it once a day across restarts,
-  repeated ticks and two servers; nothing is sent when nothing is owed. **No message and no line settles anything**: a row leaves
-  only through *Handed back* or *Give as credit*.
+  repeated ticks and two servers; nothing is sent when nothing is owed. A venue with no manager who has an address is told nothing
+  and is not counted as told. Each **platform owner** is sent one summary per platform day, from 09:00 on the install's clock, of
+  every venue: what waits (count, sum, oldest, overdue), what was newly owed and settled in the last 24 hours, and the payments to
+  check, split into what is the venue's to hand back and what the platform should follow up (overdue ones, payments to check, a venue
+  nobody could email); no customer or booking, and nothing when nothing waits anywhere (`sendOwnerRefundDigest`, key
+  `owner-refunds:<day>:<email>`; [ADR 0079](../architecture/decisions/0079-the-platform-owners-daily-refund-summary-and-email-on-system-health.md)).
+  **No message and no line settles anything**: a row leaves only through *Handed back* or *Give as credit*.
 - **Settled when the customer comes**, as a staff cancellation settles
   (`POST /api/admin/bookings/owed`): *Handed back* the way it was paid (its
   credit note and a counter payout written then, by the member of staff

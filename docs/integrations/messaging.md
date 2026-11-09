@@ -385,7 +385,8 @@ queue and are tried; the owners' alert says delivery has not been verified until
 warned, not refused; there is no mode that switches authentication off. Development and tests keep their mock and log transports
 and are never refused.
 
-**What the owner sees** (`GET /api/admin/system`, `email`; the *System health* panel for the alerts): the state and its
+**What the owner sees** (`GET /api/admin/system`, `email`; the *System health* panel for the alerts, and its **Email** section for these numbers:
+[email on System health](../operations/monitoring.md#email-on-system-health)): the state and its
 problems; the last hour's sends (accepted, refused, share refused); the email waiting and the age of the oldest (a venue's bulk
 news excluded); what was given up in the last day, security mail apart. The scheduler checks after each outbox pass, at most
 every five minutes: `email:failing` when at least 5 sends in an hour were tried and at least half were refused, `email:backlog`

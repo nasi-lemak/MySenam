@@ -17,6 +17,8 @@ export interface AlertOptions {
    * person's email is queued once under it (the outbox's own dedupe), so telling again writes nothing more.
    */
   dedupeKey?: string;
+  /** Owners only: leave out the closing "nothing needs doing if that is right" line, for a message that is not about a change to undo (a daily summary). */
+  noUndoFooter?: boolean;
 }
 
 /** An alert no longer worth sending a week on (an outbox with no mail server set up for that long). */
@@ -38,33 +40,36 @@ export function staffSentences(t: StaffT, ...parts: (string | false | null | und
  * (lib/staff-locales.ts `staffReaderLocale`): `write` says the subject and
  * body with the lookup it is handed, once per owner. Queued in the outbox, so
  * a mail server that is down delays it rather than losing it, and the owners
- * can see under Messages how it went.
+ * can see under Messages how it went. An account with no address (blank) is
+ * skipped, never queued to nobody. Returns how many were queued.
  */
-export async function tellOwnersEach(write: WriteAlert, opts: AlertOptions = {}): Promise<void> {
+export async function tellOwnersEach(write: WriteAlert, opts: AlertOptions = {}): Promise<number> {
   const except = new Set((opts.exceptEmails ?? []).map((e) => e.toLowerCase()));
-  const owners = (await listAdmins()).filter(isOwner).filter((o) => !except.has(o.email.toLowerCase()));
+  const owners = (await listAdmins()).filter(isOwner).filter((o) => o.email.trim() !== "" && !except.has(o.email.toLowerCase()));
   for (const owner of owners) {
     const t = staffTranslator(staffReaderLocale(owner.locale));
     const { subject, body } = write(t);
     await emailPlain({
       to: owner.email,
       subject,
-      text: `${body}\n\n${t.customer("sl8.mail.ownerFooter", { site: siteName() })}`,
+      text: `${body}\n\n${opts.noUndoFooter ? siteName() : t.customer("sl8.mail.ownerFooter", { site: siteName() })}`,
       kind: opts.kind ?? "staff_alert",
       expiresMinutes: ALERT_EXPIRES_MINUTES,
       locale: t.locale,
       ...(opts.dedupeKey ? { dedupeKey: `${opts.dedupeKey}:${owner.email.toLowerCase()}` } : {}),
     });
   }
+  return owners.length;
 }
 
 /**
  * A venue's own managers and staff, by email: its business's managers, and
  * anyone at that branch, each in their own staff language, as
  * `tellOwnersEach`. `managersOnly` leaves out the branch's front desk (a
- * decision that is a manager's: lib/team-forfeits.ts).
+ * decision that is a manager's: lib/team-forfeits.ts). An account with no
+ * address is skipped. Returns how many were queued (none: nobody was told).
  */
-export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opts: AlertOptions & { managersOnly?: boolean } = {}): Promise<void> {
+export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opts: AlertOptions & { managersOnly?: boolean } = {}): Promise<number> {
   const except = new Set((opts.exceptEmails ?? []).map((e) => e.toLowerCase()));
   const people = (await getDb()
     .prepare(
@@ -72,7 +77,8 @@ export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opt
         WHERE (a.venue_id = ? OR a.business_id = (SELECT business_id FROM venues WHERE id = ?))${opts.managersOnly ? " AND NOT (a.venue_id IS NOT NULL AND a.role = 'desk')" : ""}`
     )
     .all(venueId, venueId)) as { email: string; name: string; locale: string | null }[];
-  for (const p of people.filter((x) => !except.has(x.email.toLowerCase()))) {
+  const told = people.filter((x) => x.email.trim() !== "" && !except.has(x.email.toLowerCase()));
+  for (const p of told) {
     const t = staffTranslator(staffReaderLocale(p.locale));
     const { subject, body } = write(t);
     await emailPlain({
@@ -86,4 +92,5 @@ export async function tellVenueStaffEach(venueId: number, write: WriteAlert, opt
       ...(opts.dedupeKey ? { dedupeKey: `${opts.dedupeKey}:${p.email.toLowerCase()}` } : {}),
     });
   }
+  return told.length;
 }
