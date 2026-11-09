@@ -964,6 +964,33 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 9 November 2026, commit `354f346` (pilot completion round, release verification on the AI VM: PASS)
+
+`node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
+on a loopback port), of commit `354f3468faec48a3db1562908c2e9416adb1a9aa`, tree clean, source digest `f96d9442505700388cb4f3befc8b3fe61e91b08a189a59747fc16826a8563ecc` (the same
+before and after the run). Started 09:12 UTC (17:12 Malaysian time), 7192 seconds; the disk was 87.3% used (the runner's preflight warns above 80%). Report:
+`artifacts/verify/354f3468faec-1794215553097.json` (not committed). This verifies the source of the [pilot completion round](../operations/pilot-completion-2026-11-08.md): the operator-visibility
+readings ([ADR 0076](../architecture/decisions/0076-three-operator-visibility-gaps-the-heartbeat-a-payment-mismatch-and-counter-refunds-owed.md)) and the staff withdrawal that writes its payout
+([ADR 0077](../architecture/decisions/0077-staff-taking-a-person-off-at-the-counter-hand-the-money-over-then-and-it-is-written-as-the-payout-it-is.md)), on top of `f1c2c52`. **This is not CI** (no GitHub Actions job was
+started) **and not production readiness.**
+
+| Step | Result |
+| ---- | ------ |
+| Type-check | Passed |
+| Lint (`--max-warnings 0`) | Passed |
+| Documentation checks | 181 of 181 passed |
+| Suite on PGlite | 7034 passed, 0 failed, 15 skipped (the 15 Postgres-only tests listed in `scripts/lib/expected-skips.mjs`), of 7049 |
+| Suite on PostgreSQL 16 | 7050 passed, 0 failed, **0 skipped**, of 7050; the server committed 2446 transactions during it (Postgres was used) |
+| Production build | Succeeded |
+| Browser end-to-end tests | 12 of 12 passed |
+| Acceptance scenarios (UAT) | 27 files; 95 of 95 passed, none skipped |
+| CI | Not run: GitHub Actions workflows start only by hand |
+| Real services | None checked by this run (see the [completion record](../operations/pilot-completion-2026-11-08.md)) |
+
+This is the first complete run of this source to finish; nothing in it was retried. Three earlier attempts on the same commit were cut short when the machine restarted while the session was idle
+(two before the first suite finished, one in its PGlite suite) and are not counted: their logs show only the steps that had finished, and no step failed. Commits after `354f346` that change only
+this file leave the verification standing; `node scripts/verify.mjs check` says so.
+
 #### 8 November 2026, commit `f1c2c52` (pilot activation round, release verification on the AI VM: PASS)
 
 `node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
