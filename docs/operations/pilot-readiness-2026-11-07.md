@@ -34,7 +34,7 @@ safeguards are in place. Until then nothing is offered to a real customer.
 | Venue cancellation and closures | Ready only with manual safeguards | The closure is written first, refunds owed are tracked; Billplz refunds by hand; waiting entries on a closed day stay silent |
 | Staff authentication | Ready for restricted pilot | Two-factor is required for the owner, venue owners and managers on a production marketplace; each must enrol before first privileged use; recovery codes and the documented reset exist. The pilot operator must enrol first |
 | Customer registration and password reset | See the assessment below | Reviewed end to end this round |
-| Email delivery | **Blocked pending verification** | Never sent through a real provider. Verify the sending domain in SES (DKIM, SPF, DMARC), production access, then the email check. Booking confirmations, resets, refund notices and the new no-show and expiry notices all depend on it |
+| Email delivery | **Inbox delivery verified; production access pending** | Delivered through SES to the approved recipient's inbox with DMARC, DKIM and SPF passing (10 November 2026, update below). Production access and `MAIL_DELIVERY_VERIFIED` on the install remain. Booking confirmations, resets, refund notices and the new no-show and expiry notices all depend on it |
 | Backups and restore | **Blocked pending verification** | Backup, signing and restore code is tested against stand-ins. A real Backblaze B2 bucket, a written transfer approval (privacy document), the off-site verify and a restore drill on an isolated machine must pass **before** any real customer data is held |
 | Scheduler and operational monitoring | Ready only with manual safeguards | Alerts, the heartbeat (now also a line on the owner's dashboard), payment-mismatch alerts, a counter-refund line and daily digest, a disk-space guard, a separate lease for long jobs and a visible dead-letter list exist. An uptime monitor outside the server and an owner who reads the alerts are not code: both must be set up |
 | Privacy and legal documents | **Blocked pending verification** | Terms, privacy notice, the backup-abroad transfer and the retention periods are drafts for a Malaysian lawyer to review. No legal question is treated as settled in code |
@@ -51,7 +51,7 @@ enabled in the pilot. Provisioning credentials and approvals is the owner's.
 | Integration | Mock tests | Sandbox credentials | Exercised live | Error handling checked live | Missing approvals or configuration | May it be enabled in the pilot |
 | ----------- | ---------- | ------------------- | -------------- | --------------------------- | ---------------------------------- | ------------------------------ |
 | Billplz | Pass (settlement, signature, duplicates, late, short, over) | Not available | Nothing | No | Sandbox account and test keys; collection id; callback URL on a public address | **No, until the sandbox check passes** |
-| Amazon SES | Pass (outbox, retry, exhaustion) | Not available | Nothing | No | Verified domain (DKIM, SPF, DMARC), production access, `SES_*` and `MAIL_FROM` | **Required** before any customer message; pending |
+| Amazon SES | Pass (outbox, retry, exhaustion) | Not available | Inbox delivery with DMARC, DKIM, SPF passing (10 November 2026) | Partly | Verified domain (DKIM, SPF, DMARC), production access, `SES_*` and `MAIL_FROM` | **Required** before any customer message; pending |
 | Backblaze B2 | Pass (upload, signed manifests, restore drill on stand-ins) | Not available | Nothing | No | Bucket, separate write and read keys, lifecycle, `OFFSITE_*` approvals | **Required** before real data; pending |
 | Stripe | Pass | Not available | Nothing | No | Test keys; the `pause_collection` and refund checks | No: not needed for a staffed pilot; auto-renewal disabled |
 | WhatsApp Cloud API | Pass | Not available | Nothing | No | Meta business verification; the changed waitlist offer template must be **resubmitted** | No: email only for the pilot |
@@ -88,7 +88,7 @@ risk; everything else stays off. A sandbox result does not prove all production 
 | Payment integrity verified for each method enabled | Counter: tested. Billplz: **pending** |
 | Billplz sandbox validation before online payments | **Pending** |
 | A designated person settles manual refunds | **To be named** |
-| SES delivery verified for essential notifications | **Pending** |
+| SES delivery verified for essential notifications | **Inbox delivery confirmed** (10 November 2026: sign-up, reset and cancellation messages, DMARC, DKIM and SPF passing); production access and `MAIL_DELIVERY_VERIFIED` on the install pending |
 | B2 backup and restore exercised | **Pending** |
 | Scheduler failures visible and actionable | Built; an external monitor is to be set up |
 | Existing booking terms preserved and explainable | Built and tested |
@@ -153,4 +153,13 @@ daily refund summary and an Email section on *System health*, and two pilot rule
 and a cheaper coach's difference ([daily operations](pilot-daily-operations.md)). No external check changed: SES delivery,
 the B2 round trip and restore, Billplz, the legal review and external monitoring are as above. Release verification of the
 changed source is in [testing](../development/testing.md#release-records).
+
+## Update, 10 November 2026
+
+The owner confirmed in the approved recipient's inbox (Proton Mail) the sign-up, password-reset and cancellation messages
+sent through SES on 8 November; the cancellation notice's headers show DMARC, DKIM (`d=mysenam.com`) and SPF
+(`bounce.mysenam.com`, aligned) all passing ([SES checklist](email-ses-checklist.md#a-read-the-messages-already-sent-to-the-approved-recipient)).
+SES delivery to an inbox is therefore verified for this sender. Still open for email: the SES account's production access
+(a sandbox delivers only to verified addresses; the key cannot read it), and `MAIL_DELIVERY_VERIFIED` set on the install
+and the service restarted. The other external checks are unchanged.
 

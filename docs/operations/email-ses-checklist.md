@@ -178,12 +178,14 @@ message source" or "view headers".
 
 | # | Kind | Subject seen | Received (UTC and MYT) | Folder | From (name, address) | `dmarc=` | `dkim=` and `d=`, `s=` | `spf=` and its domain | `Return-Path` domain | Link host(s); rewritten? | Content and language ok? | Confirmed by, date |
 | - | ---- | ------------ | ---------------------- | ------ | -------------------- | -------- | ---------------------- | --------------------- | -------------------- | ------------------------ | ------------------------ | ------------------ |
-| 1 | Verification | | | | | | | | | | | |
-| 2 | Sign-up link | | | | | | | | | | | |
-| 3 | Reset link | | | | | | | | | | | |
-| 4 | Cancellation notice | | | | | | | | | | | |
+| 1 | Verification | Not checked | | | | | | | | | | |
+| 2 | Sign-up link | Seen | 8 November, in the run's window | Inbox | `noreply@mysenam.com` | Not read (same sender and signing as 4) | Not read | Not read | Not read | Not clicked | Seen by the owner | The owner, 10 November 2026 |
+| 3 | Reset link | Seen | 8 November, in the run's window | Inbox | `noreply@mysenam.com` | Not read (same sender and signing as 4) | Not read | Not read | Not read | Not clicked | Seen by the owner | The owner, 10 November 2026 |
+| 4 | Cancellation notice | Booking cancelled | 06:31:13 UTC (14:31:13 MYT), 8 November (DKIM `t=`) | Inbox | `mysenam.com` (`header.from`) | **pass** (p=none) | **pass**, `d=mysenam.com`, `s=q36k3kze2zrcdjgfjlui5ucotjgoaeoi` (2048-bit); a second pass for `amazonses.com` (SES's own) | **pass**, `smtp.mailfrom=bounce.mysenam.com` (a custom MAIL FROM: aligned) | `bounce.mysenam.com` | No SES configuration set, so no click tracking | Seen by the owner | The owner (Proton Mail headers), 10 November 2026 |
 | 5 | | | | | | | | | | | | |
 | 6 | | | | | | | | | | | | |
+
+**Result, 10 November 2026:** messages 2, 3 and 4 arrived in the inbox of the approved recipient (Proton Mail); message 4's headers show DMARC, DKIM and SPF all passing and aligned with `mysenam.com` (the bounce domain is `bounce.mysenam.com`, so SPF aligns too, not only DKIM). Message 1 was not looked for. Still open: whether the SES account has production access (part B: the key cannot read it), and setting `MAIL_DELIVERY_VERIFIED` on the install.
 
 Messages 1 to 4 are the minimum. If any is missing, in Spam, or has `dmarc=fail`, **stop**: record nothing, and look at part B
 (a sandbox account sends only to verified addresses; an identity whose DKIM is not successful signs with Amazon's domain).
