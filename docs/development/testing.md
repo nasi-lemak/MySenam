@@ -964,6 +964,30 @@ the retention periods are product policy awaiting legal review; the memory
 figures for the lock table come from the development container, not the
 Droplet.
 
+#### 10 November 2026, commit `43c20d2` (SES inbox confirmation recorded, release verification on the AI VM: PASS)
+
+`node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
+on a loopback port), of commit `43c20d2d7b598af48a762a1665e093d56e33efaa`, tree clean, source digest `23fab27d607bd08051911756fb016a2663f57c031cd2054a4f703ed1544dfe72` (the same
+before and after the run). Started 08:28 UTC (16:28 Malaysian time), 6883 seconds; the disk was 87.8% used. Report: `artifacts/verify/43c20d2d7b59-1794299324572.json` (not committed).
+The only change since `f2263b1` is documentation: the owner's confirmation that SES delivered the sign-up, reset and cancellation messages to the approved recipient's inbox
+with DMARC, DKIM and SPF passing ([SES checklist](../operations/email-ses-checklist.md#a-read-the-messages-already-sent-to-the-approved-recipient)); the documents are part of the
+verified source, so the profile was run again. **This is not CI** (no GitHub Actions job was started) **and not production readiness.**
+
+| Step | Result |
+| ---- | ------ |
+| Type-check | Passed |
+| Lint (`--max-warnings 0`) | Passed |
+| Documentation checks | 184 of 184 passed |
+| Suite on PGlite | 7091 passed, 0 failed, 15 skipped (the 15 Postgres-only tests listed in `scripts/lib/expected-skips.mjs`), of 7106 |
+| Suite on PostgreSQL 16 | 7107 passed, 0 failed, **0 skipped**, of 7107; the server committed 2482 transactions during it (Postgres was used) |
+| Production build | Succeeded |
+| Browser end-to-end tests | 12 of 12 passed |
+| Acceptance scenarios (UAT) | 27 files; 95 of 95 passed, none skipped |
+| CI | Not run: GitHub Actions workflows start only by hand |
+| Real services | None checked by this run (the SES inbox check was the owner's, recorded in the checklist) |
+
+It passed on the first run of this source; nothing was retried. Commits after `43c20d2` that change only this file leave the verification standing; `node scripts/verify.mjs check` says so.
+
 #### 9 November 2026, commit `f2263b1` (final bounded housekeeping, release verification on the AI VM: PASS)
 
 `node scripts/verify.mjs release --pg docker`, on the AI development VM (4 CPUs, 16.9 GB, Node 22.22.0, Docker with `postgres:16-alpine`, PostgreSQL 16.15 on a throwaway container
